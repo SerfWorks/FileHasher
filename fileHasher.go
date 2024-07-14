@@ -1,6 +1,7 @@
 ﻿package fileHasher
 
 import (
+	"fmt"
 	"os"
 )
 
@@ -39,5 +40,6 @@ func BuildManifest(filePath string) ([]ManifestElement, error) {
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("File opened successfully")
 	return nil, nil
 }
