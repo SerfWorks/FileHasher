@@ -32,8 +32,12 @@ type ManifestElementFile struct {
 	Chunks []ManifestElementChunk `json:"chunks" bson:"chunks"`
 }
 
-func BuildManifest(filePath string) (ManifestElementDirectory, error) {
+func BuildManifest(filePath string) ([]ManifestElement, error) {
 	// Open the file
-	fsys := os.DirFS(filePath)
-	baseManifest := 
+	fileSys := os.DirFS(filePath)
+	_, err := fileSys.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	return nil, nil
 }
