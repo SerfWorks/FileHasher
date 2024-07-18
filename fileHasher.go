@@ -1,19 +1,22 @@
 ﻿package fileHasher
 
 import (
-	"crypto/sha256"
+	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go.mongodb.org/mongo-driver/bson"
 	"io"
 	"io/fs"
 	"math"
 	"os"
+	"time"
 )
 
 type ManifestType int
 
+//goland:noinspection GoSnakeCaseUsage
 const (
 	MF_Directory ManifestType = iota
 	MF_File
@@ -25,6 +28,15 @@ const (
 var ChunkSize = 1024 * 1024 * 32
 
 type Checksum string
+
+type Manifest struct {
+	Id          string                     `json:"id" bson:"id" required:"true" unique:"1"`
+	BuildId     string                     `json:"buildId" bson:"buildId" required:"true" validate:"Build"`
+	Created     time.Time                  `json:"created" bson:"created" required:"true"`
+	Checksum    string                     `json:"checksum" bson:"checksum" required:"true"`
+	Files       []ManifestElementFile      `json:"files" bson:"files"`
+	Directories []ManifestElementDirectory `json:"directories" bson:"directories"`
+}
 
 type ManifestData interface {
 	GetType() ManifestType
@@ -94,6 +106,32 @@ func (m *ManifestElementChunkProxy) UnmarshalJSON(data []byte) error {
 		} else {
 			tempChunk := ManifestElementChunkProxy{}
 			err = json.Unmarshal(chunkData, &tempChunk)
+			m.Chunks = append(m.Chunks, &tempChunk)
+		}
+	}
+	return nil
+}
+
+func (m *ManifestElementChunkProxy) UnmarshalBSON(data []byte) error {
+	temp := make(map[string]interface{})
+	err := bson.Unmarshal(data, &temp)
+	if err != nil {
+		return err
+	}
+
+	for _, chunk := range temp["chunks"].([]map[string]interface{}) {
+		var chunkData []byte
+		chunkData, err = bson.Marshal(chunk)
+		if err != nil {
+			return err
+		}
+		if chunk["type"].(ManifestType) == MF_Chunk {
+			tempChunk := ManifestElementChunk{}
+			err = bson.Unmarshal(chunkData, &tempChunk)
+			m.Chunks = append(m.Chunks, &tempChunk)
+		} else {
+			tempChunk := ManifestElementChunkProxy{}
+			err = bson.Unmarshal(chunkData, &tempChunk)
 			m.Chunks = append(m.Chunks, &tempChunk)
 		}
 	}
@@ -202,6 +240,32 @@ func (m *ManifestElementFile) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (m *ManifestElementFile) UnmarshalBSON(data []byte) error {
+	temp := make(map[string]interface{})
+	err := bson.Unmarshal(data, &temp)
+	if err != nil {
+		return err
+	}
+
+	for _, chunk := range temp["chunks"].([]map[string]interface{}) {
+		var chunkData []byte
+		chunkData, err = bson.Marshal(chunk)
+		if err != nil {
+			return err
+		}
+		if chunk["type"].(ManifestType) == MF_Chunk {
+			tempChunk := ManifestElementChunk{}
+			err = bson.Unmarshal(chunkData, &tempChunk)
+			m.Chunks = append(m.Chunks, &tempChunk)
+		} else {
+			tempChunk := ManifestElementChunkProxy{}
+			err = bson.Unmarshal(chunkData, &tempChunk)
+			m.Chunks = append(m.Chunks, &tempChunk)
+		}
+	}
+	return nil
+}
+
 type ManifestElementDirectory struct {
 	Name string `json:"name" bson:"name"`
 	ManifestElement
@@ -231,6 +295,35 @@ func (m *ManifestElementDirectory) UnmarshalJSON(data []byte) error {
 		} else {
 			tempFile := ManifestElementFile{}
 			err = json.Unmarshal(directoryData, &tempFile)
+			m.Elements = append(m.Elements, &tempFile)
+		}
+	}
+	return nil
+}
+
+func (m *ManifestElementDirectory) UnmarshalBSON(data []byte) error {
+	temp := make(map[string]interface{})
+	err := bson.Unmarshal(data, &temp)
+	if err != nil {
+		return err
+	}
+
+	m.Name = temp["name"].(string)
+	m.Type = temp["type"].(ManifestType)
+	m.Checksum = temp["hash"].(Checksum)
+	for _, directory := range temp["elements"].([]map[string]interface{}) {
+		var directoryData []byte
+		directoryData, err = bson.Marshal(directory)
+		if err != nil {
+			return err
+		}
+		if directory["type"].(ManifestType) == MF_Directory {
+			tempDirectory := ManifestElementDirectory{}
+			err = bson.Unmarshal(directoryData, &tempDirectory)
+			m.Elements = append(m.Elements, &tempDirectory)
+		} else {
+			tempFile := ManifestElementFile{}
+			err = bson.Unmarshal(directoryData, &tempFile)
 			m.Elements = append(m.Elements, &tempFile)
 		}
 	}
@@ -316,7 +409,7 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 			output <- splitData
 			return
 		}
-		hash := sha256.New()
+		hash := md5.New()
 		if _, err = io.Copy(hash, leftFile); err != nil {
 			splitData.err = err
 			output <- splitData
@@ -399,7 +492,7 @@ func parseFile(filePath string, chunkTargetPath string) *chan parseFileOutput {
 
 		defer file.Close()
 		if fileInfo.Size() <= int64(ChunkSize) {
-			hash := sha256.New()
+			hash := md5.New()
 			if _, err = io.Copy(hash, file); err != nil {
 				manifestOutput.err = err
 				output <- manifestOutput
@@ -489,7 +582,7 @@ func parseFile(filePath string, chunkTargetPath string) *chan parseFileOutput {
 			return
 		}
 
-		hash := sha256.New()
+		hash := md5.New()
 		_, err = hash.Write(append(leftByteChecksum, rightByteChecksum...))
 		if err != nil {
 			manifestOutput.err = err
@@ -593,7 +686,7 @@ func parseDirectory(filePath string, chunkTargetPath string) *chan parseDirector
 			totalChecksumBytes = append(totalChecksumBytes, checksumBytes...)
 		}
 
-		hash := sha256.New()
+		hash := md5.New()
 		_, err = hash.Write(totalChecksumBytes)
 		if err != nil {
 			manifestOutput.err = err
