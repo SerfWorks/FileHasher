@@ -222,7 +222,7 @@ func (m *ManifestElementChunkProxy) UnmarshalBSON(data []byte) error {
 			fmt.Println("Failed to marshal chunk at line 216: ", err)
 			return err
 		}
-		if ManifestType(int(castedChunk["type"].(float64))) == MF_Chunk {
+		if ManifestType(int(castedChunk["type"].(int32))) == MF_Chunk {
 			tempChunk := ManifestElementChunk{}
 			err = bson.Unmarshal(chunkData, &tempChunk)
 			m.Chunks = append(m.Chunks, &tempChunk)
@@ -460,6 +460,10 @@ func (m *ManifestElementFile) UnmarshalBSON(data []byte) error {
 		return err
 	}
 
+	if temp["chunks"] == nil {
+		return nil
+	}
+
 	for _, chunk := range temp["chunks"].(primitive.A) {
 		castedChunk := chunk.(map[string]interface{})
 		var chunkData []byte
@@ -467,7 +471,7 @@ func (m *ManifestElementFile) UnmarshalBSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		if ManifestType(int(castedChunk["type"].(float64))) == MF_Chunk {
+		if ManifestType(int(castedChunk["type"].(int32))) == MF_Chunk {
 			tempChunk := ManifestElementChunk{}
 			err = bson.Unmarshal(chunkData, &tempChunk)
 			m.Chunks = append(m.Chunks, &tempChunk)
@@ -633,7 +637,7 @@ func (m *ManifestElementDirectory) UnmarshalBSON(data []byte) error {
 	}
 
 	m.Name = temp["name"].(string)
-	m.Type = int(temp["type"].(float64))
+	m.Type = int(temp["type"].(int32))
 	m.Checksum = temp["hash"].(string)
 	for _, directory := range temp["elements"].(primitive.A) {
 		castedDirectory := directory.(map[string]interface{})
@@ -642,7 +646,7 @@ func (m *ManifestElementDirectory) UnmarshalBSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		if castedDirectory["type"].(ManifestType) == MF_Directory {
+		if ManifestType(int(castedDirectory["type"].(int32))) == MF_Directory {
 			tempDirectory := ManifestElementDirectory{}
 			err = bson.Unmarshal(directoryData, &tempDirectory)
 			m.Elements = append(m.Elements, &tempDirectory)
