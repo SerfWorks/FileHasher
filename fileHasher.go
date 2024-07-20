@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"io"
 	"io/fs"
 	"math"
@@ -213,7 +214,7 @@ func (m *ManifestElementChunkProxy) UnmarshalBSON(data []byte) error {
 		return err
 	}
 
-	for _, chunk := range temp["chunks"].([]interface{}) {
+	for _, chunk := range temp["chunks"].(primitive.A) {
 		castedChunk := chunk.(map[string]interface{})
 		var chunkData []byte
 		chunkData, err = bson.Marshal(castedChunk)
@@ -459,7 +460,7 @@ func (m *ManifestElementFile) UnmarshalBSON(data []byte) error {
 		return err
 	}
 
-	for _, chunk := range temp["chunks"].([]interface{}) {
+	for _, chunk := range temp["chunks"].(primitive.A) {
 		castedChunk := chunk.(map[string]interface{})
 		var chunkData []byte
 		chunkData, err = bson.Marshal(castedChunk)
@@ -634,7 +635,7 @@ func (m *ManifestElementDirectory) UnmarshalBSON(data []byte) error {
 	m.Name = temp["name"].(string)
 	m.Type = int(temp["type"].(float64))
 	m.Checksum = temp["hash"].(string)
-	for _, directory := range temp["elements"].([]interface{}) {
+	for _, directory := range temp["elements"].(primitive.A) {
 		castedDirectory := directory.(map[string]interface{})
 		var directoryData []byte
 		directoryData, err = bson.Marshal(castedDirectory)
