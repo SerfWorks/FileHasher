@@ -133,12 +133,12 @@ type ManifestData interface {
 }
 
 type ManifestElement struct {
-	Type     ManifestType `json:"type" bson:"type"`
-	Checksum string       `json:"hash" bson:"hash"`
+	Type     int    `json:"type" bson:"type"`
+	Checksum string `json:"hash" bson:"hash"`
 }
 
 func (m *ManifestElement) GetType() ManifestType {
-	return m.Type
+	return ManifestType(m.Type)
 }
 
 func (m *ManifestElement) GetChecksum() string {
@@ -155,7 +155,7 @@ type ManifestElementChunk struct {
 
 func buildChunk(checksum string, chunkTargetPath string) ManifestElementChunk {
 	manifestChunk := ManifestElementChunk{}
-	manifestChunk.Type = MF_Chunk
+	manifestChunk.Type = int(MF_Chunk)
 	manifestChunk.Checksum = checksum
 	return manifestChunk
 }
@@ -177,7 +177,7 @@ func (m *ManifestElementChunkProxy) UnmarshalJSON(data []byte) error {
 	}
 
 	m.ManifestElement = ManifestElement{
-		Type:     temp["type"].(ManifestType),
+		Type:     int(temp["type"].(float64)),
 		Checksum: temp["hash"].(string),
 	}
 	for _, chunk := range temp["chunks"].([]map[string]interface{}) {
@@ -214,7 +214,7 @@ func (m *ManifestElementChunkProxy) UnmarshalBSON(data []byte) error {
 			fmt.Println("Failed to marshal chunk at line 216: ", err)
 			return err
 		}
-		if chunk["type"].(ManifestType) == MF_Chunk {
+		if ManifestType(int(chunk["type"].(float64))) == MF_Chunk {
 			tempChunk := ManifestElementChunk{}
 			err = bson.Unmarshal(chunkData, &tempChunk)
 			m.Chunks = append(m.Chunks, &tempChunk)
@@ -287,7 +287,7 @@ func (m *ManifestElementChunkProxy) BuildProxy(chunkTargetPath, currentPath stri
 			}
 		}
 
-		m.Type = MF_ChunkProxy
+		m.Type = int(MF_ChunkProxy)
 		file, err := os.Open(chunkTargetPath + "\\" + m.Checksum)
 		if err != nil {
 			fmt.Println("Failed to open proxy file at line 295: ", err)
@@ -410,7 +410,7 @@ func (m *ManifestElementFile) UnmarshalJSON(data []byte) error {
 	}
 
 	m.Name = temp["name"].(string)
-	m.Type = temp["type"].(ManifestType)
+	m.Type = int(temp["type"].(float64))
 	m.Checksum = temp["hash"].(string)
 	for _, chunk := range temp["chunks"].([]map[string]interface{}) {
 		var chunkData []byte
@@ -419,7 +419,7 @@ func (m *ManifestElementFile) UnmarshalJSON(data []byte) error {
 			fmt.Println("Failed to marshal chunk at line 421: ", err)
 			return err
 		}
-		if chunk["type"].(ManifestType) == MF_Chunk {
+		if ManifestType(int(chunk["type"].(float64))) == MF_Chunk {
 			tempChunk := ManifestElementChunk{}
 			err = json.Unmarshal(chunkData, &tempChunk)
 			m.Chunks = append(m.Chunks, &tempChunk)
@@ -445,7 +445,7 @@ func (m *ManifestElementFile) UnmarshalBSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		if chunk["type"].(ManifestType) == MF_Chunk {
+		if ManifestType(int(chunk["type"].(float64))) == MF_Chunk {
 			tempChunk := ManifestElementChunk{}
 			err = bson.Unmarshal(chunkData, &tempChunk)
 			m.Chunks = append(m.Chunks, &tempChunk)
@@ -569,7 +569,7 @@ func (m *ManifestElementDirectory) UnmarshalJSON(data []byte) error {
 	}
 
 	m.Name = temp["name"].(string)
-	m.Type = temp["type"].(ManifestType)
+	m.Type = int(temp["type"].(float64))
 	m.Checksum = temp["hash"].(string)
 	for _, directory := range temp["elements"].([]map[string]interface{}) {
 		var directoryData []byte
@@ -577,7 +577,7 @@ func (m *ManifestElementDirectory) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		if directory["type"].(ManifestType) == MF_Directory {
+		if ManifestType(int(temp["type"].(float64))) == MF_Directory {
 			tempDirectory := ManifestElementDirectory{}
 			err = json.Unmarshal(directoryData, &tempDirectory)
 			m.Elements = append(m.Elements, &tempDirectory)
@@ -598,7 +598,7 @@ func (m *ManifestElementDirectory) UnmarshalBSON(data []byte) error {
 	}
 
 	m.Name = temp["name"].(string)
-	m.Type = temp["type"].(ManifestType)
+	m.Type = int(temp["type"].(float64))
 	m.Checksum = temp["hash"].(string)
 	for _, directory := range temp["elements"].([]map[string]interface{}) {
 		var directoryData []byte
@@ -795,7 +795,7 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 		}
 
 		manifestOutput.element.Name = fileInfo.Name()
-		manifestOutput.element.Type = MF_File
+		manifestOutput.element.Type = int(MF_File)
 
 		hash := md5.New()
 		if _, err = io.Copy(hash, file); err != nil {
@@ -866,12 +866,12 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 
 		if baseData.HalfSize <= int64(ChunkSize) {
 			leftChunkData := ManifestElementChunk{}
-			leftChunkData.Type = MF_Chunk
+			leftChunkData.Type = int(MF_Chunk)
 			leftChunkData.Checksum = baseData.LeftFileChecksum
 			manifestOutput.element.Chunks = append(manifestOutput.element.Chunks, &leftChunkData)
 
 			rightChunkData := ManifestElementChunk{}
-			rightChunkData.Type = MF_Chunk
+			rightChunkData.Type = int(MF_Chunk)
 			rightChunkData.Checksum = baseData.RightFileChecksum
 			manifestOutput.element.Chunks = append(manifestOutput.element.Chunks, &rightChunkData)
 
@@ -893,14 +893,14 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 			return
 		}
 
-		manifestOutput.element.Type = MF_ChunkedFile
+		manifestOutput.element.Type = int(MF_ChunkedFile)
 
 		leftProxy := ManifestElementChunkProxy{}
-		leftProxy.Type = MF_Chunk
+		leftProxy.Type = int(MF_Chunk)
 		leftProxy.Checksum = baseData.LeftFileChecksum
 		leftChan := leftProxy.BuildProxy(chunkTargetPath, currentPath+"\\"+manifestOutput.element.Name+"\\", priorManifest)
 		rightProxy := ManifestElementChunkProxy{}
-		rightProxy.Type = MF_Chunk
+		rightProxy.Type = int(MF_Chunk)
 		rightProxy.Checksum = baseData.RightFileChecksum
 		rightChan := rightProxy.BuildProxy(chunkTargetPath, currentPath+"\\"+manifestOutput.element.Name+"\\", priorManifest)
 
