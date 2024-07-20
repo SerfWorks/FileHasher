@@ -2,7 +2,6 @@
 
 import (
 	"crypto/md5"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -206,6 +205,7 @@ func (m *ManifestElementChunkProxy) UnmarshalBSON(data []byte) error {
 	temp := make(map[string]interface{})
 	err := bson.Unmarshal(data, &temp)
 	if err != nil {
+		fmt.Println("Failed to unmarshal BSON at line 208: ", err)
 		return err
 	}
 
@@ -213,6 +213,7 @@ func (m *ManifestElementChunkProxy) UnmarshalBSON(data []byte) error {
 		var chunkData []byte
 		chunkData, err = bson.Marshal(chunk)
 		if err != nil {
+			fmt.Println("Failed to marshal chunk at line 216: ", err)
 			return err
 		}
 		if chunk["type"].(ManifestType) == MF_Chunk {
@@ -291,6 +292,7 @@ func (m *ManifestElementChunkProxy) BuildProxy(chunkTargetPath, currentPath stri
 		m.Type = MF_ChunkProxy
 		file, err := os.Open(chunkTargetPath + "\\" + m.Checksum)
 		if err != nil {
+			fmt.Println("Failed to open proxy file at line 295: ", err)
 			output <- err
 			return
 		}
@@ -298,9 +300,10 @@ func (m *ManifestElementChunkProxy) BuildProxy(chunkTargetPath, currentPath stri
 			_ = file.Close()
 			err = os.Remove(chunkTargetPath + "\\" + m.Checksum)
 			if err != nil {
-				fmt.Println("Failed to remove proxy file: " + err.Error())
+				fmt.Println("Failed to remove proxy file at line 303: " + err.Error())
 			}
 		}()
+		_, _ = file.Seek(0, 0)
 		splitChan := splitFile(file, chunkTargetPath)
 		splitData := <-(*splitChan)
 		if splitData.err != nil {
@@ -328,11 +331,13 @@ func (m *ManifestElementChunkProxy) BuildProxy(chunkTargetPath, currentPath stri
 
 		err = <-leftChan
 		if err != nil {
+			fmt.Println("Failed to build left proxy at line 333: ", err)
 			output <- err
 			return
 		}
 		err = <-rightChan
 		if err != nil {
+			fmt.Println("Failed to build right proxy at line 339: ", err)
 			output <- err
 			return
 		}
@@ -414,6 +419,7 @@ func (m *ManifestElementFile) UnmarshalJSON(data []byte) error {
 		var chunkData []byte
 		chunkData, err = json.Marshal(chunk)
 		if err != nil {
+			fmt.Println("Failed to marshal chunk at line 421: ", err)
 			return err
 		}
 		if chunk["type"].(ManifestType) == MF_Chunk {
@@ -627,6 +633,7 @@ type fileSplitOutput struct {
 	LeftFileChecksum  string
 	RightFileChecksum string
 	HalfSize          int64
+	Size              int64
 	err               error
 }
 
@@ -637,11 +644,13 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 		splitData := fileSplitOutput{}
 		sourceStat, err := file.Stat()
 		if err != nil {
+			fmt.Println("Failed to stat file at line 645: ", err)
 			splitData.err = err
 			output <- splitData
 			return
 		}
 		if sourceStat.Mode().IsRegular() == false {
+			fmt.Println("Not a regular file at line 651")
 			splitData.err = errors.New("not a regular file")
 			output <- splitData
 			return
@@ -656,12 +665,14 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 
 		leftFile, err = os.Create(leftFileName)
 		if err != nil {
+			fmt.Println("Failed to create left file at line 666: ", err)
 			splitData.err = err
 			output <- splitData
 			return
 		}
 		_, err = io.CopyN(leftFile, file, halfSize)
 		if err != nil {
+			fmt.Println("Failed to copy right file at line 673: ", err)
 			splitData.err = err
 			output <- splitData
 			return
@@ -670,6 +681,7 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 
 		rightFile, err = os.Create(rightFileName)
 		if err != nil {
+			fmt.Println("Failed to create right file at line 682: ", err)
 			splitData.err = err
 			output <- splitData
 			return
@@ -677,12 +689,14 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 
 		_, err = file.Seek(halfSize, 0)
 		if err != nil {
+			fmt.Println("Failed to seek right file at line 690: ", err)
 			splitData.err = err
 			output <- splitData
 			return
 		}
 		_, err = io.Copy(rightFile, file)
 		if err != nil {
+			fmt.Println("Failed to copy right file at line 697: ", err)
 			splitData.err = err
 			output <- splitData
 			return
@@ -691,12 +705,14 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 
 		leftFile, err = os.Open(leftFileName)
 		if err != nil {
+			fmt.Println("Failed to open left file at line 706: ", err)
 			splitData.err = err
 			output <- splitData
 			return
 		}
 		hash := md5.New()
 		if _, err = io.Copy(hash, leftFile); err != nil {
+			fmt.Println("Failed to copy left file at line 713: ", err)
 			splitData.err = err
 			output <- splitData
 			return
@@ -707,11 +723,13 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 
 		rightFile, err = os.Open(rightFileName)
 		if err != nil {
+			fmt.Println("Failed to open right file at line 724: ", err)
 			splitData.err = err
 			output <- splitData
 			return
 		}
 		if _, err = io.Copy(hash, rightFile); err != nil {
+			fmt.Println("Failed to copy right file at line 730: ", err)
 			splitData.err = err
 			output <- splitData
 			return
@@ -722,19 +740,21 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 
 		err = rightFile.Close()
 		if err != nil {
+			fmt.Println("Failed to close right file at line 741: ", err)
 			splitData.err = err
 			output <- splitData
 			return
 		}
 		err = leftFile.Close()
 		if err != nil {
+			fmt.Println("Failed to close left file at line 748: ", err)
 			splitData.err = err
 			output <- splitData
 			return
 		}
 		err = os.Rename(leftFileName, chunkTargetPath+"\\"+splitData.LeftFileChecksum)
 		if err != nil {
-			fmt.Println("Failed to rename left file: " + err.Error())
+			fmt.Println("Failed to rename left file at line 755: ", err)
 			fmt.Println(leftFileName)
 			fmt.Println(chunkTargetPath + "\\" + splitData.RightFileChecksum)
 			splitData.err = err
@@ -762,6 +782,7 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 		manifestOutput := parseFileOutput{}
 		file, err := os.Open(filePath)
 		if err != nil {
+			fmt.Println("Failed to open file at line 783: ", err)
 			manifestOutput.err = err
 			output <- manifestOutput
 			return
@@ -773,6 +794,7 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 		var fileInfo fs.FileInfo
 		fileInfo, err = file.Stat()
 		if err != nil {
+			fmt.Println("Failed to stat file at line 795: ", err)
 			manifestOutput.err = err
 			output <- manifestOutput
 			return
@@ -780,6 +802,7 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 
 		hash := md5.New()
 		if _, err = io.Copy(hash, file); err != nil {
+			fmt.Println("Failed to copy file at line 803: ", err)
 			manifestOutput.err = err
 			output <- manifestOutput
 			return
@@ -813,6 +836,7 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 				var newFile *os.File
 				newFile, err = os.Create(chunkTargetPath + "\\" + manifestOutput.element.Checksum)
 				if err != nil {
+					fmt.Println("Failed to create file at line 837: ", err)
 					manifestOutput.err = err
 					output <- manifestOutput
 					return
@@ -822,6 +846,7 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 
 				_, err = io.Copy(newFile, file)
 				if err != nil {
+					fmt.Println("Failed to copy file at line 847: ", err)
 					manifestOutput.err = err
 					output <- manifestOutput
 					return
@@ -833,9 +858,11 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 			return
 		}
 
+		_, _ = file.Seek(0, 0)
 		baseChannel := splitFile(file, chunkTargetPath)
 		baseData := <-(*baseChannel)
 		if baseData.err != nil {
+			fmt.Println("Failed to split file at line 862: ", baseData.err)
 			manifestOutput.err = baseData.err
 			output <- manifestOutput
 			return
@@ -885,6 +912,7 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 
 		err = <-leftChan
 		if err != nil {
+			fmt.Println("Failed to build left proxy at line 912: ", err)
 			manifestOutput.err = err
 			output <- manifestOutput
 			return
@@ -892,6 +920,7 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 
 		err = <-rightChan
 		if err != nil {
+			fmt.Println("Failed to build right proxy at line 920: ", err)
 			manifestOutput.err = err
 			output <- manifestOutput
 			return
@@ -924,6 +953,7 @@ func parseDirectory(filePath, chunkTargetPath, currentPath string, priorManifest
 		manifestOutput.manifestElement.Name = currentPath
 		directory, err := os.Open(filePath)
 		if err != nil {
+			fmt.Println("Failed to open directory at line 953: ", err)
 			manifestOutput.err = err
 			output <- manifestOutput
 			return
@@ -931,6 +961,7 @@ func parseDirectory(filePath, chunkTargetPath, currentPath string, priorManifest
 		var stat fs.FileInfo
 		stat, err = directory.Stat()
 		if err != nil {
+			fmt.Println("Failed to stat directory at line 961: ", err)
 			manifestOutput.err = err
 			output <- manifestOutput
 			return
@@ -969,12 +1000,14 @@ func parseDirectory(filePath, chunkTargetPath, currentPath string, priorManifest
 
 			_, err = fmt.Fprintf(directoryHash, "%x %s\n", directoryOutput.checksumHash, directoryOutput.manifestElement.Name)
 			if err != nil {
+				fmt.Println("Failed to write directory hash at line 1000: ", err)
 				manifestOutput.err = err
 				output <- manifestOutput
 				return
 			}
 
 			if directoryOutput.err != nil {
+				fmt.Println("Failed to parse directory at line 1007: ", directoryOutput.err)
 				manifestOutput.err = directoryOutput.err
 				output <- manifestOutput
 				return
@@ -987,12 +1020,14 @@ func parseDirectory(filePath, chunkTargetPath, currentPath string, priorManifest
 
 			_, err = fmt.Fprintf(directoryHash, "%x %s\n", fileOutput.checksumHash, fileOutput.element.Name)
 			if err != nil {
+				fmt.Println("Failed to write file hash at line 1020: ", err)
 				manifestOutput.err = err
 				output <- manifestOutput
 				return
 			}
 
 			if fileOutput.err != nil {
+				fmt.Println("Failed to parse file at line 1027: ", fileOutput.err)
 				manifestOutput.err = fileOutput.err
 				output <- manifestOutput
 				return
@@ -1000,7 +1035,7 @@ func parseDirectory(filePath, chunkTargetPath, currentPath string, priorManifest
 		}
 
 		manifestOutput.checksumHash = directoryHash.Sum(nil)
-		manifestOutput.manifestElement.Checksum = base64.StdEncoding.EncodeToString(manifestOutput.checksumHash)
+		manifestOutput.manifestElement.Checksum = hex.EncodeToString(manifestOutput.checksumHash)
 
 		output <- manifestOutput
 	}()
@@ -1031,6 +1066,7 @@ func BuildNewManifest(filePath, chunkStoragePath string, priorManifest *Manifest
 			directoryOutput := <-*directoryChannel
 			manifest.Directories = append(manifest.Directories, directoryOutput.manifestElement)
 			if directoryOutput.err != nil {
+				fmt.Println("Failed to parse directory at line 1066: ", directoryOutput.err)
 				return &manifest, directoryOutput.err
 			}
 			_, err := fmt.Fprintf(manifestHash, "%x %s\n", directoryOutput.checksumHash, directoryOutput.manifestElement.Name)
@@ -1045,6 +1081,7 @@ func BuildNewManifest(filePath, chunkStoragePath string, priorManifest *Manifest
 			fileOutput := <-*fileChannel
 			manifest.Files = append(manifest.Files, fileOutput.element)
 			if fileOutput.err != nil {
+				fmt.Println("Failed to parse file at line 1081: ", fileOutput.err)
 				return &manifest, fileOutput.err
 			}
 			_, err := fmt.Fprintf(manifestHash, "%x %s\n", fileOutput.checksumHash, fileOutput.element.Name)
@@ -1054,7 +1091,7 @@ func BuildNewManifest(filePath, chunkStoragePath string, priorManifest *Manifest
 		}
 	}
 
-	manifest.Checksum = base64.StdEncoding.EncodeToString(manifestHash.Sum(nil))
+	manifest.Checksum = hex.EncodeToString(manifestHash.Sum(nil))
 
 	return &manifest, nil
 }
