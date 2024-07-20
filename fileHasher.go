@@ -151,14 +151,12 @@ type ManifestFilePiece interface {
 
 type ManifestElementChunk struct {
 	ManifestElement
-	Url string `json:"url" bson:"url"`
 }
 
 func buildChunk(checksum string, chunkTargetPath string) ManifestElementChunk {
 	manifestChunk := ManifestElementChunk{}
 	manifestChunk.Type = MF_Chunk
 	manifestChunk.Checksum = checksum
-	manifestChunk.Url = fmt.Sprintf("%s\\%s", chunkTargetPath, checksum)
 	return manifestChunk
 }
 
@@ -356,7 +354,6 @@ type ManifestElementFile struct {
 	Name string `json:"name" bson:"name"`
 	ManifestElement
 	Chunks []ManifestFilePiece `json:"chunks,omitempty" bson:"chunks,omitempty"`
-	Url    string              `json:"url,omitempty" bson:"url,omitempty"`
 }
 
 func (m *ManifestElementFile) GetChunkAtPath(path string) *ManifestElementChunk {
@@ -788,9 +785,6 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 			return
 		}
 
-		manifestOutput.element.Name = file.Name()
-		manifestOutput.element.Type = MF_File
-
 		var fileInfo fs.FileInfo
 		fileInfo, err = file.Stat()
 		if err != nil {
@@ -799,6 +793,9 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 			output <- manifestOutput
 			return
 		}
+
+		manifestOutput.element.Name = fileInfo.Name()
+		manifestOutput.element.Type = MF_File
 
 		hash := md5.New()
 		if _, err = io.Copy(hash, file); err != nil {
@@ -853,7 +850,6 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 				}
 			}
 
-			manifestOutput.element.Url = fmt.Sprintf("%s\\%s", currentPath, manifestOutput.element.Checksum)
 			output <- manifestOutput
 			return
 		}
@@ -872,13 +868,11 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 			leftChunkData := ManifestElementChunk{}
 			leftChunkData.Type = MF_Chunk
 			leftChunkData.Checksum = baseData.LeftFileChecksum
-			leftChunkData.Url = fmt.Sprintf("%s/%s", chunkTargetPath, baseData.LeftFileChecksum)
 			manifestOutput.element.Chunks = append(manifestOutput.element.Chunks, &leftChunkData)
 
 			rightChunkData := ManifestElementChunk{}
 			rightChunkData.Type = MF_Chunk
 			rightChunkData.Checksum = baseData.RightFileChecksum
-			rightChunkData.Url = fmt.Sprintf("%s/%s", chunkTargetPath, baseData.RightFileChecksum)
 			manifestOutput.element.Chunks = append(manifestOutput.element.Chunks, &rightChunkData)
 
 			if priorManifest != nil {
