@@ -132,25 +132,21 @@ type ManifestData interface {
 	GetChecksum() string
 }
 
-type ManifestElement struct {
-	Type     int    `json:"type" bson:"type"`
-	Checksum string `json:"hash" bson:"hash"`
-}
-
-func (m *ManifestElement) GetType() ManifestType {
-	return ManifestType(m.Type)
-}
-
-func (m *ManifestElement) GetChecksum() string {
-	return m.Checksum
-}
-
 type ManifestFilePiece interface {
 	IsProxy() bool
 }
 
 type ManifestElementChunk struct {
-	ManifestElement
+	Type     int    `json:"type" bson:"type"`
+	Checksum string `json:"hash" bson:"hash"`
+}
+
+func (m *ManifestElementChunk) GetType() ManifestType {
+	return ManifestType(m.Type)
+}
+
+func (m *ManifestElementChunk) GetChecksum() string {
+	return m.Checksum
 }
 
 func buildChunk(checksum string, chunkTargetPath string) ManifestElementChunk {
@@ -165,8 +161,17 @@ func (m *ManifestElementChunk) IsProxy() bool {
 }
 
 type ManifestElementChunkProxy struct {
-	ManifestElement
-	Chunks []ManifestFilePiece `json:"chunks" bson:"chunks"`
+	Type     int                 `json:"type" bson:"type"`
+	Checksum string              `json:"hash" bson:"hash"`
+	Chunks   []ManifestFilePiece `json:"chunks" bson:"chunks"`
+}
+
+func (m *ManifestElementChunkProxy) GetType() ManifestType {
+	return ManifestType(m.Type)
+}
+
+func (m *ManifestElementChunkProxy) GetChecksum() string {
+	return m.Checksum
 }
 
 func (m *ManifestElementChunkProxy) UnmarshalJSON(data []byte) error {
@@ -176,10 +181,9 @@ func (m *ManifestElementChunkProxy) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	m.ManifestElement = ManifestElement{
-		Type:     int(temp["type"].(float64)),
-		Checksum: temp["hash"].(string),
-	}
+	m.Type = int(temp["type"].(float64))
+	m.Checksum = temp["hash"].(string)
+
 	for _, chunk := range temp["chunks"].([]interface{}) {
 		castedChunk := chunk.(map[string]interface{})
 		var chunkData []byte
@@ -353,9 +357,18 @@ func (m *ManifestElementChunkProxy) BuildProxy(chunkTargetPath, currentPath stri
 }
 
 type ManifestElementFile struct {
-	Name string `json:"name" bson:"name"`
-	ManifestElement
-	Chunks []ManifestFilePiece `json:"chunks,omitempty" bson:"chunks,omitempty"`
+	Name     string              `json:"name" bson:"name"`
+	Type     int                 `json:"type" bson:"type"`
+	Checksum string              `json:"hash" bson:"hash"`
+	Chunks   []ManifestFilePiece `json:"chunks,omitempty" bson:"chunks,omitempty"`
+}
+
+func (m *ManifestElementFile) GetType() ManifestType {
+	return ManifestType(m.Type)
+}
+
+func (m *ManifestElementFile) GetChecksum() string {
+	return m.Checksum
 }
 
 func (m *ManifestElementFile) GetChunkAtPath(path string) *ManifestElementChunk {
@@ -466,9 +479,18 @@ func (m *ManifestElementFile) UnmarshalBSON(data []byte) error {
 }
 
 type ManifestElementDirectory struct {
-	Name string `json:"name" bson:"name"`
-	ManifestElement
+	Name     string         `json:"name" bson:"name"`
+	Type     int            `json:"type" bson:"type"`
+	Checksum string         `json:"hash" bson:"hash"`
 	Elements []ManifestData `json:"elements,omitempty" bson:"elements,omitempty"`
+}
+
+func (m *ManifestElementDirectory) GetType() ManifestType {
+	return ManifestType(m.Type)
+}
+
+func (m *ManifestElementDirectory) GetChecksum() string {
+	return m.Checksum
 }
 
 func (m *ManifestElementDirectory) GetChunkAtPath(path string) *ManifestElementChunk {
