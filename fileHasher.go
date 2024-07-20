@@ -39,6 +39,16 @@ type Manifest struct {
 	DetectedChanges bool                       `json:"-" bson:"-"`
 }
 
+func CleanEmptyElements(elements []string) []string {
+	var outElements []string
+	for _, element := range elements {
+		if element != "" {
+			outElements = append(outElements, element)
+		}
+	}
+	return outElements
+}
+
 func (m *Manifest) GetChunkAtPath(path string) *ManifestElementChunk {
 	pathElements := strings.Split(path, "\\")
 	if len(pathElements) == 0 {
@@ -61,7 +71,7 @@ func (m *Manifest) GetChunkAtPath(path string) *ManifestElementChunk {
 }
 
 func (m *Manifest) GetChunkProxyAtPath(path string) *ManifestElementChunkProxy {
-	pathElements := strings.Split(path, "\\")
+	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
 	if len(pathElements) == 0 {
 		return nil
 	}
@@ -82,7 +92,7 @@ func (m *Manifest) GetChunkProxyAtPath(path string) *ManifestElementChunkProxy {
 }
 
 func (m *Manifest) GetFileAtPath(path string) *ManifestElementFile {
-	pathElements := strings.Split(path, "\\")
+	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
 	if len(pathElements) == 0 {
 		return nil
 	}
@@ -99,6 +109,8 @@ func (m *Manifest) GetFileAtPath(path string) *ManifestElementFile {
 	for _, dir := range m.Directories {
 		if dir.Name == pathElements[0] {
 			return dir.GetFileAtPath(strings.Join(pathElements[1:], "\\"))
+		} else {
+			fmt.Println(dir.Name)
 		}
 	}
 
@@ -106,7 +118,7 @@ func (m *Manifest) GetFileAtPath(path string) *ManifestElementFile {
 }
 
 func (m *Manifest) GetDirectoryAtPath(path string) *ManifestElementDirectory {
-	pathElements := strings.Split(path, "\\")
+	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
 	if len(pathElements) == 0 {
 		return nil
 	}
@@ -240,7 +252,7 @@ func (m *ManifestElementChunkProxy) IsProxy() bool {
 }
 
 func (m *ManifestElementChunkProxy) GetChunkAtPath(path string) *ManifestElementChunk {
-	pathElements := strings.Split(path, "\\")
+	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
 	if len(pathElements) == 0 {
 		return nil
 	}
@@ -263,7 +275,7 @@ func (m *ManifestElementChunkProxy) GetChunkAtPath(path string) *ManifestElement
 }
 
 func (m *ManifestElementChunkProxy) GetChunkProxyAtPath(path string) *ManifestElementChunkProxy {
-	pathElements := strings.Split(path, "\\")
+	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
 	if len(pathElements) == 0 {
 		return nil
 	}
@@ -374,7 +386,7 @@ func (m *ManifestElementFile) GetChecksum() string {
 }
 
 func (m *ManifestElementFile) GetChunkAtPath(path string) *ManifestElementChunk {
-	pathElements := strings.Split(path, "\\")
+	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
 	if len(pathElements) == 0 {
 		return nil
 	}
@@ -398,7 +410,7 @@ func (m *ManifestElementFile) GetChunkAtPath(path string) *ManifestElementChunk 
 }
 
 func (m *ManifestElementFile) GetChunkProxyAtPath(path string) *ManifestElementChunkProxy {
-	pathElements := strings.Split(path, "\\")
+	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
 	if len(pathElements) == 0 {
 		return nil
 	}
@@ -460,6 +472,10 @@ func (m *ManifestElementFile) UnmarshalBSON(data []byte) error {
 		return err
 	}
 
+	m.Name = temp["name"].(string)
+	m.Type = int(temp["type"].(int32))
+	m.Checksum = temp["hash"].(string)
+
 	if temp["chunks"] == nil {
 		return nil
 	}
@@ -500,7 +516,7 @@ func (m *ManifestElementDirectory) GetChecksum() string {
 }
 
 func (m *ManifestElementDirectory) GetChunkAtPath(path string) *ManifestElementChunk {
-	pathElements := strings.Split(path, "\\")
+	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
 	if len(pathElements) < 2 {
 		return nil
 	}
@@ -525,7 +541,7 @@ func (m *ManifestElementDirectory) GetChunkAtPath(path string) *ManifestElementC
 }
 
 func (m *ManifestElementDirectory) GetChunkProxyAtPath(path string) *ManifestElementChunkProxy {
-	pathElements := strings.Split(path, "\\")
+	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
 	if len(pathElements) < 2 {
 		return nil
 	}
@@ -551,21 +567,26 @@ func (m *ManifestElementDirectory) GetChunkProxyAtPath(path string) *ManifestEle
 }
 
 func (m *ManifestElementDirectory) GetFileAtPath(path string) *ManifestElementFile {
-	pathElements := strings.Split(path, "\\")
+	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
 	if len(pathElements) == 0 {
 		return nil
 	}
 
 	if len(pathElements) == 1 {
 		for _, element := range m.Elements {
-			if file, ok := element.(*ManifestElementFile); ok && file.Name == pathElements[0] {
-				return file
+			if file, ok := element.(*ManifestElementFile); ok {
+				if file.Name == pathElements[0] {
+					return file
+				}
+				//fmt.Println(file.Name)
 			}
 		}
+		//fmt.Println("Failed to find : " + pathElements[0])
 		return nil
 	}
 
 	for _, element := range m.Elements {
+		//fmt.Println(element)
 		if dir, ok := element.(*ManifestElementDirectory); ok && dir.Name == pathElements[0] {
 			return dir.GetFileAtPath(strings.Join(pathElements[1:], "\\"))
 		}
@@ -575,7 +596,7 @@ func (m *ManifestElementDirectory) GetFileAtPath(path string) *ManifestElementFi
 }
 
 func (m *ManifestElementDirectory) GetDirectoryAtPath(path string) *ManifestElementDirectory {
-	pathElements := strings.Split(path, "\\")
+	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
 	if len(pathElements) == 0 {
 		return nil
 	}
@@ -755,7 +776,6 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 			return
 		}
 		splitData.LeftFileChecksum = hex.EncodeToString(hash.Sum(nil))
-		fmt.Println("Left Checksum: ", splitData.LeftFileChecksum)
 		hash.Reset()
 
 		rightFile, err = os.Open(rightFileName)
@@ -773,7 +793,6 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 		}
 
 		splitData.RightFileChecksum = hex.EncodeToString(hash.Sum(nil))
-		fmt.Println("Right Checksum: ", splitData.RightFileChecksum)
 
 		err = rightFile.Close()
 		if err != nil {
@@ -853,7 +872,11 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 					manifestOutput.element = *priorFile
 					output <- manifestOutput
 					return
+				} else {
+					fmt.Println("Old Checksum : " + priorFile.Checksum + " New Checksum : " + manifestOutput.element.Checksum)
 				}
+			} else {
+				fmt.Println("Failed to get file at line 837: ", err)
 			}
 		}
 		priorManifest.DetectedChanges = true
