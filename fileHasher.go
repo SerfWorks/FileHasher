@@ -180,13 +180,14 @@ func (m *ManifestElementChunkProxy) UnmarshalJSON(data []byte) error {
 		Type:     int(temp["type"].(float64)),
 		Checksum: temp["hash"].(string),
 	}
-	for _, chunk := range temp["chunks"].([]map[string]interface{}) {
+	for _, chunk := range temp["chunks"].([]interface{}) {
+		castedChunk := chunk.(map[string]interface{})
 		var chunkData []byte
-		chunkData, err = json.Marshal(chunk)
+		chunkData, err = json.Marshal(castedChunk)
 		if err != nil {
 			return err
 		}
-		if chunk["type"].(ManifestType) == MF_Chunk {
+		if ManifestType(int(castedChunk["type"].(float64))) == MF_Chunk {
 			tempChunk := ManifestElementChunk{}
 			err = json.Unmarshal(chunkData, &tempChunk)
 			m.Chunks = append(m.Chunks, &tempChunk)
@@ -207,14 +208,15 @@ func (m *ManifestElementChunkProxy) UnmarshalBSON(data []byte) error {
 		return err
 	}
 
-	for _, chunk := range temp["chunks"].([]map[string]interface{}) {
+	for _, chunk := range temp["chunks"].([]interface{}) {
+		castedChunk := chunk.(map[string]interface{})
 		var chunkData []byte
-		chunkData, err = bson.Marshal(chunk)
+		chunkData, err = bson.Marshal(castedChunk)
 		if err != nil {
 			fmt.Println("Failed to marshal chunk at line 216: ", err)
 			return err
 		}
-		if ManifestType(int(chunk["type"].(float64))) == MF_Chunk {
+		if ManifestType(int(castedChunk["type"].(float64))) == MF_Chunk {
 			tempChunk := ManifestElementChunk{}
 			err = bson.Unmarshal(chunkData, &tempChunk)
 			m.Chunks = append(m.Chunks, &tempChunk)
@@ -412,14 +414,18 @@ func (m *ManifestElementFile) UnmarshalJSON(data []byte) error {
 	m.Name = temp["name"].(string)
 	m.Type = int(temp["type"].(float64))
 	m.Checksum = temp["hash"].(string)
-	for _, chunk := range temp["chunks"].([]map[string]interface{}) {
+	if temp["chunks"] == nil {
+		return nil
+	}
+	for _, chunk := range temp["chunks"].([]interface{}) {
+		castedChunk := chunk.(map[string]interface{})
 		var chunkData []byte
-		chunkData, err = json.Marshal(chunk)
+		chunkData, err = json.Marshal(castedChunk)
 		if err != nil {
 			fmt.Println("Failed to marshal chunk at line 421: ", err)
 			return err
 		}
-		if ManifestType(int(chunk["type"].(float64))) == MF_Chunk {
+		if ManifestType(int(castedChunk["type"].(float64))) == MF_Chunk {
 			tempChunk := ManifestElementChunk{}
 			err = json.Unmarshal(chunkData, &tempChunk)
 			m.Chunks = append(m.Chunks, &tempChunk)
@@ -439,13 +445,14 @@ func (m *ManifestElementFile) UnmarshalBSON(data []byte) error {
 		return err
 	}
 
-	for _, chunk := range temp["chunks"].([]map[string]interface{}) {
+	for _, chunk := range temp["chunks"].([]interface{}) {
+		castedChunk := chunk.(map[string]interface{})
 		var chunkData []byte
-		chunkData, err = bson.Marshal(chunk)
+		chunkData, err = bson.Marshal(castedChunk)
 		if err != nil {
 			return err
 		}
-		if ManifestType(int(chunk["type"].(float64))) == MF_Chunk {
+		if ManifestType(int(castedChunk["type"].(float64))) == MF_Chunk {
 			tempChunk := ManifestElementChunk{}
 			err = bson.Unmarshal(chunkData, &tempChunk)
 			m.Chunks = append(m.Chunks, &tempChunk)
@@ -461,7 +468,7 @@ func (m *ManifestElementFile) UnmarshalBSON(data []byte) error {
 type ManifestElementDirectory struct {
 	Name string `json:"name" bson:"name"`
 	ManifestElement
-	Elements []ManifestData `json:"elements" bson:"elements"`
+	Elements []ManifestData `json:"elements,omitempty" bson:"elements,omitempty"`
 }
 
 func (m *ManifestElementDirectory) GetChunkAtPath(path string) *ManifestElementChunk {
@@ -571,13 +578,18 @@ func (m *ManifestElementDirectory) UnmarshalJSON(data []byte) error {
 	m.Name = temp["name"].(string)
 	m.Type = int(temp["type"].(float64))
 	m.Checksum = temp["hash"].(string)
-	for _, directory := range temp["elements"].([]map[string]interface{}) {
+	if temp["elements"] == nil {
+		return nil
+	}
+	for _, directory := range temp["elements"].([]interface{}) {
+		castedDirectory := directory.(map[string]interface{})
 		var directoryData []byte
-		directoryData, err = json.Marshal(directory)
+		directoryData, err = json.Marshal(castedDirectory)
 		if err != nil {
 			return err
 		}
-		if ManifestType(int(temp["type"].(float64))) == MF_Directory {
+		fmt.Println(castedDirectory["type"])
+		if ManifestType(int(castedDirectory["type"].(float64))) == MF_Directory {
 			tempDirectory := ManifestElementDirectory{}
 			err = json.Unmarshal(directoryData, &tempDirectory)
 			m.Elements = append(m.Elements, &tempDirectory)
@@ -600,13 +612,14 @@ func (m *ManifestElementDirectory) UnmarshalBSON(data []byte) error {
 	m.Name = temp["name"].(string)
 	m.Type = int(temp["type"].(float64))
 	m.Checksum = temp["hash"].(string)
-	for _, directory := range temp["elements"].([]map[string]interface{}) {
+	for _, directory := range temp["elements"].([]interface{}) {
+		castedDirectory := directory.(map[string]interface{})
 		var directoryData []byte
-		directoryData, err = bson.Marshal(directory)
+		directoryData, err = bson.Marshal(castedDirectory)
 		if err != nil {
 			return err
 		}
-		if directory["type"].(ManifestType) == MF_Directory {
+		if castedDirectory["type"].(ManifestType) == MF_Directory {
 			tempDirectory := ManifestElementDirectory{}
 			err = bson.Unmarshal(directoryData, &tempDirectory)
 			m.Elements = append(m.Elements, &tempDirectory)
