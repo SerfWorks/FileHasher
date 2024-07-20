@@ -29,12 +29,13 @@ const (
 var ChunkSize = 1024 * 1024 * 32
 
 type Manifest struct {
-	Id          string                     `json:"id" bson:"id" required:"true" unique:"1"`
-	BuildId     string                     `json:"buildId" bson:"buildId" required:"true" validate:"Build"`
-	Created     time.Time                  `json:"created" bson:"created" required:"true"`
-	Checksum    string                     `json:"checksum" bson:"checksum" required:"true"`
-	Files       []ManifestElementFile      `json:"files" bson:"files"`
-	Directories []ManifestElementDirectory `json:"directories" bson:"directories"`
+	Id              string                     `json:"id" bson:"id" required:"true" unique:"1"`
+	BuildId         string                     `json:"buildId" bson:"buildId" required:"true" validate:"Build"`
+	Created         time.Time                  `json:"created" bson:"created" required:"true"`
+	Checksum        string                     `json:"checksum" bson:"checksum" required:"true"`
+	Files           []ManifestElementFile      `json:"files" bson:"files"`
+	Directories     []ManifestElementDirectory `json:"directories" bson:"directories"`
+	DetectedChanges bool                       `json:"-" bson:"-"`
 }
 
 func (m *Manifest) GetChunkAtPath(path string) *ManifestElementChunk {
@@ -610,7 +611,6 @@ func (m *ManifestElementDirectory) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println(castedDirectory["type"])
 		if ManifestType(int(castedDirectory["type"].(float64))) == MF_Directory {
 			tempDirectory := ManifestElementDirectory{}
 			err = json.Unmarshal(directoryData, &tempDirectory)
@@ -851,6 +851,7 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 				}
 			}
 		}
+		priorManifest.DetectedChanges = true
 
 		defer file.Close()
 		if fileInfo.Size() <= int64(ChunkSize) {
