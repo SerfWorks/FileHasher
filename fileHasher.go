@@ -875,10 +875,9 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 				} else {
 					fmt.Println("Old Checksum : " + priorFile.Checksum + " New Checksum : " + manifestOutput.element.Checksum)
 				}
-			} else {
-				fmt.Println("Failed to get file at line 837: ", err)
 			}
 		}
+
 		priorManifest.DetectedChanges = true
 
 		defer file.Close()
