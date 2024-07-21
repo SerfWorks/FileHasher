@@ -36,6 +36,7 @@ type Manifest struct {
 	Checksum        string                     `json:"checksum" bson:"checksum" required:"true"`
 	Files           []ManifestElementFile      `json:"files" bson:"files"`
 	Directories     []ManifestElementDirectory `json:"directories" bson:"directories"`
+	Size            int64                      `json:"size" bson:"size"`
 	DetectedChanges bool                       `json:"-" bson:"-"`
 }
 
@@ -153,6 +154,7 @@ type ManifestFilePiece interface {
 type ManifestElementChunk struct {
 	Type     int    `json:"type" bson:"type"`
 	Checksum string `json:"hash" bson:"hash"`
+	Size     int64  `json:"size" bson:"size"`
 }
 
 func (m *ManifestElementChunk) GetType() ManifestType {
@@ -163,10 +165,11 @@ func (m *ManifestElementChunk) GetChecksum() string {
 	return m.Checksum
 }
 
-func buildChunk(checksum string, chunkTargetPath string) ManifestElementChunk {
+func buildChunk(checksum string, size int64) ManifestElementChunk {
 	manifestChunk := ManifestElementChunk{}
 	manifestChunk.Type = int(MF_Chunk)
 	manifestChunk.Checksum = checksum
+	manifestChunk.Size = size
 	return manifestChunk
 }
 
@@ -178,6 +181,7 @@ type ManifestElementChunkProxy struct {
 	Type     int                 `json:"type" bson:"type"`
 	Checksum string              `json:"hash" bson:"hash"`
 	Chunks   []ManifestFilePiece `json:"chunks" bson:"chunks"`
+	Size     int64               `json:"size" bson:"size"`
 }
 
 func (m *ManifestElementChunkProxy) GetType() ManifestType {
@@ -310,7 +314,7 @@ func (m *ManifestElementChunkProxy) BuildProxy(chunkTargetPath, currentPath stri
 		m.Type = int(MF_ChunkProxy)
 		file, err := os.Open(chunkTargetPath + "\\" + m.Checksum)
 		if err != nil {
-			fmt.Println("Failed to open proxy file at line 295: ", err)
+			fmt.Println("Failed to open proxy file at line 316: ", err)
 			output <- err
 			return
 		}
@@ -318,9 +322,17 @@ func (m *ManifestElementChunkProxy) BuildProxy(chunkTargetPath, currentPath stri
 			_ = file.Close()
 			err = os.Remove(chunkTargetPath + "\\" + m.Checksum)
 			if err != nil {
-				fmt.Println("Failed to remove proxy file at line 303: " + err.Error())
+				fmt.Println("Failed to remove proxy file at line 324: " + err.Error())
 			}
 		}()
+		var stat fs.FileInfo
+		stat, err = file.Stat()
+		if err != nil {
+			fmt.Println("Failed to stat proxy file at line 329: ", err)
+			output <- err
+			return
+		}
+		m.Size = stat.Size()
 		_, _ = file.Seek(0, 0)
 		splitChan := splitFile(file, chunkTargetPath)
 		splitData := <-(*splitChan)
@@ -329,10 +341,10 @@ func (m *ManifestElementChunkProxy) BuildProxy(chunkTargetPath, currentPath stri
 			return
 		}
 		if splitData.HalfSize <= int64(ChunkSize) {
-			leftChunkData := buildChunk(splitData.LeftFileChecksum, chunkTargetPath)
+			leftChunkData := buildChunk(splitData.LeftFileChecksum, splitData.LeftFileSize)
 			m.Chunks = append(m.Chunks, &leftChunkData)
 
-			rightChunkData := buildChunk(splitData.RightFileChecksum, chunkTargetPath)
+			rightChunkData := buildChunk(splitData.RightFileChecksum, splitData.RightFileSize)
 			m.Chunks = append(m.Chunks, &rightChunkData)
 
 			close(output)
@@ -374,6 +386,7 @@ type ManifestElementFile struct {
 	Name     string              `json:"name" bson:"name"`
 	Type     int                 `json:"type" bson:"type"`
 	Checksum string              `json:"hash" bson:"hash"`
+	Size     int64               `json:"size" bson:"size"`
 	Chunks   []ManifestFilePiece `json:"chunks,omitempty" bson:"chunks,omitempty"`
 }
 
@@ -505,6 +518,7 @@ type ManifestElementDirectory struct {
 	Type     int            `json:"type" bson:"type"`
 	Checksum string         `json:"hash" bson:"hash"`
 	Elements []ManifestData `json:"elements,omitempty" bson:"elements,omitempty"`
+	Size     int64          `json:"size" bson:"size"`
 }
 
 func (m *ManifestElementDirectory) GetType() ManifestType {
@@ -691,7 +705,8 @@ type fileSplitOutput struct {
 	LeftFileChecksum  string
 	RightFileChecksum string
 	HalfSize          int64
-	Size              int64
+	LeftFileSize      int64
+	RightFileSize     int64
 	err               error
 }
 
@@ -728,7 +743,7 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 			output <- splitData
 			return
 		}
-		_, err = io.CopyN(leftFile, file, halfSize)
+		splitData.LeftFileSize, err = io.CopyN(leftFile, file, halfSize)
 		if err != nil {
 			fmt.Println("Failed to copy right file at line 673: ", err)
 			splitData.err = err
@@ -745,7 +760,7 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 			return
 		}
 
-		_, err = file.Seek(halfSize, 0)
+		splitData.RightFileSize, err = file.Seek(halfSize, 0)
 		if err != nil {
 			fmt.Println("Failed to seek right file at line 690: ", err)
 			splitData.err = err
@@ -855,6 +870,7 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 
 		manifestOutput.element.Name = fileInfo.Name()
 		manifestOutput.element.Type = int(MF_File)
+		manifestOutput.element.Size = fileInfo.Size()
 
 		hash := md5.New()
 		if _, err = io.Copy(hash, file); err != nil {
@@ -931,11 +947,13 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 			leftChunkData := ManifestElementChunk{}
 			leftChunkData.Type = int(MF_Chunk)
 			leftChunkData.Checksum = baseData.LeftFileChecksum
+			leftChunkData.Size = baseData.LeftFileSize
 			manifestOutput.element.Chunks = append(manifestOutput.element.Chunks, &leftChunkData)
 
 			rightChunkData := ManifestElementChunk{}
 			rightChunkData.Type = int(MF_Chunk)
 			rightChunkData.Checksum = baseData.RightFileChecksum
+			rightChunkData.Size = baseData.RightFileSize
 			manifestOutput.element.Chunks = append(manifestOutput.element.Chunks, &rightChunkData)
 
 			if priorManifest != nil {
@@ -1050,10 +1068,12 @@ func parseDirectory(filePath, chunkTargetPath, currentPath string, priorManifest
 		}
 
 		directoryHash := md5.New()
+		totalSize := int64(0)
 
 		for _, directoryChannel := range directoryChannels {
 			directoryOutput := <-*directoryChannel
 			manifestOutput.manifestElement.Elements = append(manifestOutput.manifestElement.Elements, &directoryOutput.manifestElement)
+			totalSize += directoryOutput.manifestElement.Size
 
 			_, err = fmt.Fprintf(directoryHash, "%x %s\n", directoryOutput.checksumHash, directoryOutput.manifestElement.Name)
 			if err != nil {
@@ -1074,6 +1094,7 @@ func parseDirectory(filePath, chunkTargetPath, currentPath string, priorManifest
 		for _, fileChannel := range fileChannels {
 			fileOutput := <-*fileChannel
 			manifestOutput.manifestElement.Elements = append(manifestOutput.manifestElement.Elements, &fileOutput.element)
+			totalSize += fileOutput.element.Size
 
 			_, err = fmt.Fprintf(directoryHash, "%x %s\n", fileOutput.checksumHash, fileOutput.element.Name)
 			if err != nil {
@@ -1117,11 +1138,13 @@ func BuildNewManifest(filePath, chunkStoragePath string, priorManifest *Manifest
 	}
 
 	manifestHash := md5.New()
+	totalSize := int64(0)
 
 	for _, directoryChannel := range directoryChannels {
 		if directoryChannel != nil {
 			directoryOutput := <-*directoryChannel
 			manifest.Directories = append(manifest.Directories, directoryOutput.manifestElement)
+			totalSize += directoryOutput.manifestElement.Size
 			if directoryOutput.err != nil {
 				fmt.Println("Failed to parse directory at line 1066: ", directoryOutput.err)
 				return &manifest, directoryOutput.err
@@ -1137,6 +1160,7 @@ func BuildNewManifest(filePath, chunkStoragePath string, priorManifest *Manifest
 		if fileChannel != nil {
 			fileOutput := <-*fileChannel
 			manifest.Files = append(manifest.Files, fileOutput.element)
+			totalSize += fileOutput.element.Size
 			if fileOutput.err != nil {
 				fmt.Println("Failed to parse file at line 1081: ", fileOutput.err)
 				return &manifest, fileOutput.err
@@ -1149,6 +1173,7 @@ func BuildNewManifest(filePath, chunkStoragePath string, priorManifest *Manifest
 	}
 
 	manifest.Checksum = hex.EncodeToString(manifestHash.Sum(nil))
+	manifest.Size = totalSize
 
 	return &manifest, nil
 }
