@@ -50,6 +50,36 @@ func CleanEmptyElements(elements []string) []string {
 	return outElements
 }
 
+func (m *Manifest) GetListOfRequiredChunks(priorManifest *Manifest) []string {
+	var requiredChunks []string
+	var returnChannels []*chan []string
+
+	for _, file := range m.Files {
+		channel := make(chan []string)
+		returnChannels = append(returnChannels, &channel)
+		go func() {
+			newChunks := file.GetListOfRequiredChunks("", priorManifest, true)
+			channel <- newChunks
+		}()
+	}
+
+	for _, directory := range m.Directories {
+		channel := make(chan []string)
+		returnChannels = append(returnChannels, &channel)
+		go func() {
+			newChunks := directory.GetListOfRequiredChunks("", priorManifest, true)
+			channel <- newChunks
+		}()
+	}
+
+	for _, channel := range returnChannels {
+		newChunks := <-(*channel)
+		requiredChunks = append(requiredChunks, newChunks...)
+	}
+
+	return requiredChunks
+}
+
 func (m *Manifest) GetChunkAtPath(path string) *ManifestElementChunk {
 	pathElements := strings.Split(path, "\\")
 	if len(pathElements) == 0 {
@@ -149,12 +179,24 @@ type ManifestData interface {
 
 type ManifestFilePiece interface {
 	IsProxy() bool
+	GetListOfRequiredChunks(currentPath string, priorManifest *Manifest, forceExtract bool) []string
 }
 
 type ManifestElementChunk struct {
 	Type     int    `json:"type" bson:"type"`
 	Checksum string `json:"hash" bson:"hash"`
 	Size     int64  `json:"size" bson:"size"`
+}
+
+func (m *ManifestElementChunk) GetListOfRequiredChunks(currentPath string, priorManifest *Manifest, forceExtract bool) []string {
+	if forceExtract {
+		return []string{m.Checksum}
+	}
+	priorChunk := priorManifest.GetChunkAtPath(currentPath + "\\" + m.Checksum)
+	if priorChunk == nil {
+		return []string{m.Checksum}
+	}
+	return []string{}
 }
 
 func (m *ManifestElementChunk) GetType() ManifestType {
@@ -182,6 +224,46 @@ type ManifestElementChunkProxy struct {
 	Checksum string              `json:"hash" bson:"hash"`
 	Chunks   []ManifestFilePiece `json:"chunks" bson:"chunks"`
 	Size     int64               `json:"size" bson:"size"`
+}
+
+func (m *ManifestElementChunkProxy) GetListOfRequiredChunks(currentPath string, priorManifest *Manifest, forceExtract bool) []string {
+	var chunkList []string
+	var returnChannels []*chan []string
+
+	if forceExtract {
+		for _, chunk := range m.Chunks {
+			channel := make(chan []string)
+			returnChannels = append(returnChannels, &channel)
+			go func() {
+				newChunks := chunk.GetListOfRequiredChunks(currentPath, priorManifest, true)
+				channel <- newChunks
+			}()
+		}
+		for _, channel := range returnChannels {
+			newChunks := <-(*channel)
+			chunkList = append(chunkList, newChunks...)
+		}
+		return chunkList
+	}
+
+	priorProxy := priorManifest.GetChunkProxyAtPath(currentPath + "\\" + m.Checksum)
+	if priorProxy == nil {
+		for _, chunk := range m.Chunks {
+			channel := make(chan []string)
+			returnChannels = append(returnChannels, &channel)
+			go func() {
+				newChunks := chunk.GetListOfRequiredChunks(currentPath, priorManifest, true)
+				channel <- newChunks
+			}()
+		}
+		for _, channel := range returnChannels {
+			newChunks := <-(*channel)
+			chunkList = append(chunkList, newChunks...)
+		}
+		return chunkList
+	}
+	return []string{}
+
 }
 
 func (m *ManifestElementChunkProxy) GetType() ManifestType {
@@ -398,6 +480,64 @@ func (m *ManifestElementFile) GetChecksum() string {
 	return m.Checksum
 }
 
+func (m *ManifestElementFile) GetListOfRequiredChunks(currentPath string, priorManifest *Manifest, forceExtract bool) []string {
+	var requiredChunks []string
+	var returnChannels []*chan []string
+
+	if forceExtract {
+		for _, chunk := range m.Chunks {
+			channel := make(chan []string)
+			returnChannels = append(returnChannels, &channel)
+			go func() {
+				newChunks := chunk.GetListOfRequiredChunks(currentPath, priorManifest, true)
+				channel <- newChunks
+			}()
+		}
+		for _, channel := range returnChannels {
+			newChunks := <-(*channel)
+			requiredChunks = append(requiredChunks, newChunks...)
+		}
+		return requiredChunks
+	}
+
+	priorFile := priorManifest.GetFileAtPath(currentPath + "\\" + m.Name)
+	if priorFile == nil {
+		for _, chunk := range m.Chunks {
+			channel := make(chan []string)
+			returnChannels = append(returnChannels, &channel)
+			go func() {
+				newChunks := chunk.GetListOfRequiredChunks(currentPath, priorManifest, true)
+				channel <- newChunks
+			}()
+		}
+		for _, channel := range returnChannels {
+			newChunks := <-(*channel)
+			requiredChunks = append(requiredChunks, newChunks...)
+		}
+		return requiredChunks
+	}
+
+	if priorFile.Checksum == m.Checksum {
+		return []string{}
+	}
+
+	for _, chunk := range m.Chunks {
+		channel := make(chan []string)
+		returnChannels = append(returnChannels, &channel)
+		go func() {
+			newChunks := chunk.GetListOfRequiredChunks(currentPath, priorManifest, false)
+			channel <- newChunks
+		}()
+	}
+
+	for _, channel := range returnChannels {
+		newChunks := <-(*channel)
+		requiredChunks = append(requiredChunks, newChunks...)
+	}
+
+	return requiredChunks
+}
+
 func (m *ManifestElementFile) GetChunkAtPath(path string) *ManifestElementChunk {
 	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
 	if len(pathElements) == 0 {
@@ -519,6 +659,81 @@ type ManifestElementDirectory struct {
 	Checksum string         `json:"hash" bson:"hash"`
 	Elements []ManifestData `json:"elements,omitempty" bson:"elements,omitempty"`
 	Size     int64          `json:"size" bson:"size"`
+}
+
+func (m *ManifestElementDirectory) GetListOfRequiredChunks(currentPath string, priorManifest *Manifest, forceExtract bool) []string {
+	var requiredChunks []string
+	if forceExtract {
+		for _, element := range m.Elements {
+			switch element.GetType() {
+			case MF_Directory:
+				{
+					requiredChunks = append(requiredChunks, element.(*ManifestElementDirectory).GetListOfRequiredChunks(currentPath, priorManifest, true)...)
+					break
+				}
+			case MF_File:
+				{
+					requiredChunks = append(requiredChunks, element.(*ManifestElementFile).GetListOfRequiredChunks(currentPath, priorManifest, true)...)
+					break
+				}
+			default:
+				{
+					fmt.Println("Unknown element type")
+					break
+				}
+			}
+		}
+		return requiredChunks
+	}
+
+	priorDir := priorManifest.GetDirectoryAtPath(currentPath + "\\" + m.Name)
+	if priorDir == nil {
+		for _, element := range m.Elements {
+			switch element.GetType() {
+			case MF_Directory:
+				{
+					requiredChunks = append(requiredChunks, element.(*ManifestElementDirectory).GetListOfRequiredChunks(currentPath, priorManifest, true)...)
+					break
+				}
+			case MF_File:
+				{
+					requiredChunks = append(requiredChunks, element.(*ManifestElementFile).GetListOfRequiredChunks(currentPath, priorManifest, true)...)
+					break
+				}
+			default:
+				{
+					fmt.Println("Unknown element type")
+					break
+				}
+			}
+		}
+		return requiredChunks
+	}
+
+	if priorDir.Checksum == m.Checksum {
+		return []string{}
+	}
+
+	for _, element := range m.Elements {
+		switch element.GetType() {
+		case MF_Directory:
+			{
+				requiredChunks = append(requiredChunks, element.(*ManifestElementDirectory).GetListOfRequiredChunks(currentPath, priorManifest, false)...)
+				break
+			}
+		case MF_File:
+			{
+				requiredChunks = append(requiredChunks, element.(*ManifestElementFile).GetListOfRequiredChunks(currentPath, priorManifest, false)...)
+				break
+			}
+		default:
+			{
+				fmt.Println("Unknown element type")
+				break
+			}
+		}
+	}
+	return requiredChunks
 }
 
 func (m *ManifestElementDirectory) GetType() ManifestType {
