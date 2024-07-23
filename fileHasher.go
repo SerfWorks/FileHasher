@@ -1245,35 +1245,23 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 
 		defer file.Close()
 		if fileInfo.Size() <= int64(ChunkSize) {
-			continueParse := true
-			if priorManifest != nil {
-				priorFile := priorManifest.GetFileAtPath(currentPath + "\\" + manifestOutput.element.Name)
-				if priorFile != nil {
-					if priorFile.Checksum == manifestOutput.element.Checksum {
-						continueParse = false
-					}
-				}
+			var newFile *os.File
+			newFile, err = os.Create(chunkTargetPath + "\\" + manifestOutput.element.Checksum)
+			if err != nil {
+				fmt.Println("Failed to create file at line 837: ", err)
+				manifestOutput.err = err
+				output <- manifestOutput
+				return
 			}
 
-			if continueParse {
-				var newFile *os.File
-				newFile, err = os.Create(chunkTargetPath + "\\" + manifestOutput.element.Checksum)
-				if err != nil {
-					fmt.Println("Failed to create file at line 837: ", err)
-					manifestOutput.err = err
-					output <- manifestOutput
-					return
-				}
+			defer newFile.Close()
 
-				defer newFile.Close()
-
-				_, err = io.Copy(newFile, file)
-				if err != nil {
-					fmt.Println("Failed to copy file at line 847: ", err)
-					manifestOutput.err = err
-					output <- manifestOutput
-					return
-				}
+			_, err = io.Copy(newFile, file)
+			if err != nil {
+				fmt.Println("Failed to copy file at line 847: ", err)
+				manifestOutput.err = err
+				output <- manifestOutput
+				return
 			}
 
 			output <- manifestOutput
