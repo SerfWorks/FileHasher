@@ -180,6 +180,7 @@ type ManifestData interface {
 type ManifestFilePiece interface {
 	IsProxy() bool
 	GetListOfRequiredChunks(currentPath string, priorManifest *Manifest, forceExtract bool) []string
+	GetChecksum() string
 }
 
 type ManifestElementChunk struct {
@@ -224,6 +225,101 @@ type ManifestElementChunkProxy struct {
 	Checksum string              `json:"hash" bson:"hash"`
 	Chunks   []ManifestFilePiece `json:"chunks" bson:"chunks"`
 	Size     int64               `json:"size" bson:"size"`
+}
+
+func (m *ManifestElementChunkProxy) BuildForInstall(currentPath, chunkSourcePath string, priorManifest *Manifest) *chan error {
+	output := make(chan error)
+	go func() {
+		needToSplit := false
+		var priorPieces []ManifestFilePiece
+		for _, chunk := range m.Chunks {
+			priorChunk := priorManifest.GetChunkAtPath(currentPath + "\\" + m.Checksum + "\\" + chunk.GetChecksum())
+			priorPieces = append(priorPieces, priorChunk)
+			if priorChunk == nil {
+				needToSplit = true
+				break
+			}
+		}
+		if needToSplit {
+			file, err := os.Open(chunkSourcePath + "\\" + m.Checksum)
+			if err == nil {
+				splitChan := SplitFile(file, chunkSourcePath)
+				splitData := <-(*splitChan)
+				_ = os.Remove(chunkSourcePath + "\\" + m.Checksum)
+				if splitData.Err != nil {
+					output <- splitData.Err
+					return
+				}
+			}
+		}
+
+		file, err := os.Create(chunkSourcePath + "\\" + m.Checksum)
+		if err != nil {
+			output <- err
+			return
+		}
+
+		if m.Chunks[0].IsProxy() {
+			var proxyChannels []*chan error
+			for index, chunk := range m.Chunks {
+				proxy := chunk.(*ManifestElementChunkProxy)
+				if priorPieces[index].GetChecksum() != proxy.Checksum {
+					proxyChannels = append(proxyChannels, proxy.BuildForInstall(currentPath+"\\"+m.Checksum, chunkSourcePath, priorManifest))
+				}
+			}
+			for _, channel := range proxyChannels {
+				err = <-(*channel)
+				if err != nil {
+					fmt.Println("Failed to build proxy at line 315: ", err)
+					output <- err
+					return
+				}
+			}
+
+			for _, proxy := range m.Chunks {
+				castedProxy := proxy.(*ManifestElementChunkProxy)
+				var proxyFile *os.File
+				proxyFile, err = os.Open(chunkSourcePath + "\\" + castedProxy.Checksum)
+				if err != nil {
+					fmt.Println("Failed to open proxy file at line 322: ", err)
+					output <- err
+					return
+				}
+				_, err = io.Copy(file, proxyFile)
+				if err != nil {
+					fmt.Println("Failed to copy proxy file at line 327: ", err)
+					output <- err
+					return
+				}
+				_ = proxyFile.Close()
+			}
+
+			_ = file.Close()
+
+			output <- nil
+			return
+		}
+
+		for _, chunk := range m.Chunks {
+			castedChunk := chunk.(*ManifestElementChunk)
+			var chunkFile *os.File
+			chunkFile, err = os.Open(chunkSourcePath + "\\" + castedChunk.Checksum)
+			if err != nil {
+				output <- err
+				return
+			}
+			_, err = io.Copy(file, chunkFile)
+			if err != nil {
+				output <- err
+				return
+			}
+			_ = chunkFile.Close()
+		}
+
+		_ = file.Close()
+	}()
+
+	return &output
 }
 
 func (m *ManifestElementChunkProxy) GetListOfRequiredChunks(currentPath string, priorManifest *Manifest, forceExtract bool) []string {
@@ -416,10 +512,10 @@ func (m *ManifestElementChunkProxy) BuildProxy(chunkTargetPath, currentPath stri
 		}
 		m.Size = stat.Size()
 		_, _ = file.Seek(0, 0)
-		splitChan := splitFile(file, chunkTargetPath)
+		splitChan := SplitFile(file, chunkTargetPath)
 		splitData := <-(*splitChan)
-		if splitData.err != nil {
-			output <- splitData.err
+		if splitData.Err != nil {
+			output <- splitData.Err
 			return
 		}
 		if splitData.HalfSize <= int64(ChunkSize) {
@@ -470,6 +566,11 @@ type ManifestElementFile struct {
 	Checksum string              `json:"hash" bson:"hash"`
 	Size     int64               `json:"size" bson:"size"`
 	Chunks   []ManifestFilePiece `json:"chunks,omitempty" bson:"chunks,omitempty"`
+}
+
+func (m *ManifestElementFile) InstallSingleFile(installPath, chunkSourcePath string) error {
+	_ = os.Remove(installPath + "\\" + m.Name)
+	return os.Rename(chunkSourcePath+"\\"+m.Checksum, installPath+"\\"+m.Name)
 }
 
 func (m *ManifestElementFile) GetType() ManifestType {
@@ -659,6 +760,30 @@ type ManifestElementDirectory struct {
 	Checksum string         `json:"hash" bson:"hash"`
 	Elements []ManifestData `json:"elements,omitempty" bson:"elements,omitempty"`
 	Size     int64          `json:"size" bson:"size"`
+}
+
+func (m *ManifestElementDirectory) GetNumFiles() int {
+	var numFiles int
+	for _, element := range m.Elements {
+		switch element.GetType() {
+		case MF_Directory:
+			{
+				numFiles += element.(*ManifestElementDirectory).GetNumFiles()
+				break
+			}
+		case MF_File:
+			{
+				numFiles++
+				break
+			}
+		default:
+			{
+				fmt.Println("Unknown element type")
+				break
+			}
+		}
+	}
+	return numFiles
 }
 
 func (m *ManifestElementDirectory) GetListOfRequiredChunks(currentPath string, priorManifest *Manifest, forceExtract bool) []string {
@@ -916,30 +1041,30 @@ type WorkingManifest struct {
 	Checksum    string                     `json:"checksum" bson:"checksum"`
 }
 
-type fileSplitOutput struct {
+type FileSplitOutput struct {
 	LeftFileChecksum  string
 	RightFileChecksum string
 	HalfSize          int64
 	LeftFileSize      int64
 	RightFileSize     int64
-	err               error
+	Err               error
 }
 
-func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
-	output := make(chan fileSplitOutput)
+func SplitFile(file *os.File, chunkTargetPath string) *chan FileSplitOutput {
+	output := make(chan FileSplitOutput)
 	go func() {
 		var leftFile, rightFile *os.File
-		splitData := fileSplitOutput{}
+		splitData := FileSplitOutput{}
 		sourceStat, err := file.Stat()
 		if err != nil {
 			fmt.Println("Failed to stat file at line 645: ", err)
-			splitData.err = err
+			splitData.Err = err
 			output <- splitData
 			return
 		}
 		if sourceStat.Mode().IsRegular() == false {
 			fmt.Println("Not a regular file at line 651")
-			splitData.err = errors.New("not a regular file")
+			splitData.Err = errors.New("not a regular file")
 			output <- splitData
 			return
 		}
@@ -954,14 +1079,14 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 		leftFile, err = os.Create(leftFileName)
 		if err != nil {
 			fmt.Println("Failed to create left file at line 666: ", err)
-			splitData.err = err
+			splitData.Err = err
 			output <- splitData
 			return
 		}
 		splitData.LeftFileSize, err = io.CopyN(leftFile, file, halfSize)
 		if err != nil {
 			fmt.Println("Failed to copy right file at line 673: ", err)
-			splitData.err = err
+			splitData.Err = err
 			output <- splitData
 			return
 		}
@@ -970,7 +1095,7 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 		rightFile, err = os.Create(rightFileName)
 		if err != nil {
 			fmt.Println("Failed to create right file at line 682: ", err)
-			splitData.err = err
+			splitData.Err = err
 			output <- splitData
 			return
 		}
@@ -978,14 +1103,14 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 		splitData.RightFileSize, err = file.Seek(halfSize, 0)
 		if err != nil {
 			fmt.Println("Failed to seek right file at line 690: ", err)
-			splitData.err = err
+			splitData.Err = err
 			output <- splitData
 			return
 		}
 		_, err = io.Copy(rightFile, file)
 		if err != nil {
 			fmt.Println("Failed to copy right file at line 697: ", err)
-			splitData.err = err
+			splitData.Err = err
 			output <- splitData
 			return
 		}
@@ -994,14 +1119,14 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 		leftFile, err = os.Open(leftFileName)
 		if err != nil {
 			fmt.Println("Failed to open left file at line 706: ", err)
-			splitData.err = err
+			splitData.Err = err
 			output <- splitData
 			return
 		}
 		hash := md5.New()
 		if _, err = io.Copy(hash, leftFile); err != nil {
 			fmt.Println("Failed to copy left file at line 713: ", err)
-			splitData.err = err
+			splitData.Err = err
 			output <- splitData
 			return
 		}
@@ -1011,13 +1136,13 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 		rightFile, err = os.Open(rightFileName)
 		if err != nil {
 			fmt.Println("Failed to open right file at line 724: ", err)
-			splitData.err = err
+			splitData.Err = err
 			output <- splitData
 			return
 		}
 		if _, err = io.Copy(hash, rightFile); err != nil {
 			fmt.Println("Failed to copy right file at line 730: ", err)
-			splitData.err = err
+			splitData.Err = err
 			output <- splitData
 			return
 		}
@@ -1027,14 +1152,14 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 		err = rightFile.Close()
 		if err != nil {
 			fmt.Println("Failed to close right file at line 741: ", err)
-			splitData.err = err
+			splitData.Err = err
 			output <- splitData
 			return
 		}
 		err = leftFile.Close()
 		if err != nil {
 			fmt.Println("Failed to close left file at line 748: ", err)
-			splitData.err = err
+			splitData.Err = err
 			output <- splitData
 			return
 		}
@@ -1043,7 +1168,7 @@ func splitFile(file *os.File, chunkTargetPath string) *chan fileSplitOutput {
 			fmt.Println("Failed to rename left file at line 755: ", err)
 			fmt.Println(leftFileName)
 			fmt.Println(chunkTargetPath + "\\" + splitData.RightFileChecksum)
-			splitData.err = err
+			splitData.Err = err
 			output <- splitData
 			return
 		}
@@ -1149,11 +1274,11 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 		}
 
 		_, _ = file.Seek(0, 0)
-		baseChannel := splitFile(file, chunkTargetPath)
+		baseChannel := SplitFile(file, chunkTargetPath)
 		baseData := <-(*baseChannel)
-		if baseData.err != nil {
-			fmt.Println("Failed to split file at line 862: ", baseData.err)
-			manifestOutput.err = baseData.err
+		if baseData.Err != nil {
+			fmt.Println("Failed to split file at line 862: ", baseData.Err)
+			manifestOutput.err = baseData.Err
 			output <- manifestOutput
 			return
 		}
