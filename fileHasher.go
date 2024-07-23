@@ -268,9 +268,7 @@ func (m *ManifestElementChunkProxy) BuildForInstall(currentPath, chunkSourcePath
 			var proxyChannels []*chan error
 			for index, chunk := range m.Chunks {
 				proxy := chunk.(*ManifestElementChunkProxy)
-				if priorPieces[index] == nil {
-					proxyChannels = append(proxyChannels, proxy.BuildForInstall(currentPath+"\\"+m.Checksum, chunkSourcePath, priorManifest))
-				} else if priorPieces[index].GetChecksum() != proxy.Checksum {
+				if priorProxy, ok := priorPieces[index].(*ManifestElementChunkProxy); !ok || priorProxy.Checksum != proxy.Checksum {
 					proxyChannels = append(proxyChannels, proxy.BuildForInstall(currentPath+"\\"+m.Checksum, chunkSourcePath, priorManifest))
 				}
 			}
