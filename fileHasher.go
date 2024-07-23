@@ -243,7 +243,6 @@ func (m *ManifestElementChunkProxy) BuildForInstall(currentPath, chunkSourcePath
 			priorPieces = append(priorPieces, priorChunk)
 			if priorChunk == nil {
 				needToSplit = true
-				break
 			}
 		}
 		if needToSplit {
@@ -299,6 +298,7 @@ func (m *ManifestElementChunkProxy) BuildForInstall(currentPath, chunkSourcePath
 					return
 				}
 				_ = proxyFile.Close()
+				_ = os.Remove(chunkSourcePath + "\\" + castedProxy.Checksum)
 			}
 
 			_ = file.Close()
@@ -321,8 +321,10 @@ func (m *ManifestElementChunkProxy) BuildForInstall(currentPath, chunkSourcePath
 				return
 			}
 			_ = chunkFile.Close()
+			_ = os.Remove(chunkSourcePath + "\\" + castedChunk.Checksum)
 		}
 
+		output <- nil
 		_ = file.Close()
 	}()
 
