@@ -13,7 +13,6 @@ import (
 	"math"
 	"os"
 	"reflect"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -577,24 +576,7 @@ type ManifestElementFile struct {
 }
 
 func (m *ManifestElementFile) InstallSingleFile(installPath, chunkSourcePath string) error {
-	stat, err := os.Stat(chunkSourcePath + "\\" + m.Checksum)
-	if err != nil {
-		fmt.Println("Failed to stat file at line 103: ", err)
-		return err
-	}
-	fmt.Println(m.Checksum + " size before : " + strconv.Itoa(int(stat.Size())))
-	err = os.Rename(chunkSourcePath+"\\"+m.Checksum, installPath+"\\"+m.Name)
-	if err != nil {
-		fmt.Println("Failed to rename file at line 108: ", err)
-		return err
-	}
-	stat, err = os.Stat(chunkSourcePath + "\\" + m.Checksum)
-	if err != nil {
-		fmt.Println("Failed to stat file at line 103: ", err)
-		return err
-	}
-	fmt.Println(m.Checksum + " size after : " + strconv.Itoa(int(stat.Size())))
-	return nil
+	return os.Rename(chunkSourcePath+"\\"+m.Checksum, installPath+"\\"+m.Name)
 }
 
 func (m *ManifestElementFile) GetType() ManifestType {
