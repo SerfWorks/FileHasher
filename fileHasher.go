@@ -233,7 +233,12 @@ func (m *ManifestElementChunkProxy) BuildForInstall(currentPath, chunkSourcePath
 		needToSplit := false
 		var priorPieces []ManifestFilePiece
 		for _, chunk := range m.Chunks {
-			priorChunk := priorManifest.GetChunkAtPath(currentPath + "\\" + m.Checksum + "\\" + chunk.GetChecksum())
+			var priorChunk ManifestFilePiece
+			if chunk.IsProxy() {
+				priorChunk = priorManifest.GetChunkProxyAtPath(currentPath + "\\" + m.Checksum + "\\" + chunk.GetChecksum())
+			} else {
+				priorChunk = priorManifest.GetChunkAtPath(currentPath + "\\" + m.Checksum + "\\" + chunk.GetChecksum())
+			}
 			priorPieces = append(priorPieces, priorChunk)
 			if priorChunk == nil {
 				needToSplit = true
@@ -263,7 +268,7 @@ func (m *ManifestElementChunkProxy) BuildForInstall(currentPath, chunkSourcePath
 			var proxyChannels []*chan error
 			for index, chunk := range m.Chunks {
 				proxy := chunk.(*ManifestElementChunkProxy)
-				if len(priorPieces)-1 < index || priorPieces[index] == nil || priorPieces[index].GetChecksum() != proxy.Checksum {
+				if priorPieces[index] == nil || priorPieces[index].GetChecksum() != proxy.Checksum {
 					proxyChannels = append(proxyChannels, proxy.BuildForInstall(currentPath+"\\"+m.Checksum, chunkSourcePath, priorManifest))
 				}
 			}
