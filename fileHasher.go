@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"math"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -268,7 +269,8 @@ func (m *ManifestElementChunkProxy) BuildForInstall(currentPath, chunkSourcePath
 			var proxyChannels []*chan error
 			for index, chunk := range m.Chunks {
 				proxy := chunk.(*ManifestElementChunkProxy)
-				if priorProxy, ok := priorPieces[index].(*ManifestElementChunkProxy); !ok || priorProxy.Checksum != proxy.Checksum {
+				priorProxy := priorPieces[index]
+				if reflect.ValueOf(priorProxy).IsNil() || priorProxy.GetChecksum() != proxy.Checksum {
 					proxyChannels = append(proxyChannels, proxy.BuildForInstall(currentPath+"\\"+m.Checksum, chunkSourcePath, priorManifest))
 				}
 			}
