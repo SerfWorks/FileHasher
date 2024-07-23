@@ -593,6 +593,9 @@ func (m *ManifestElementFile) GetListOfRequiredChunks(currentPath string, priorM
 	var returnChannels []*chan []string
 
 	if forceExtract {
+		if len(m.Chunks) == 0 {
+			return []string{m.Checksum}
+		}
 		for _, chunk := range m.Chunks {
 			channel := make(chan []string)
 			returnChannels = append(returnChannels, &channel)
@@ -610,6 +613,9 @@ func (m *ManifestElementFile) GetListOfRequiredChunks(currentPath string, priorM
 
 	priorFile := priorManifest.GetFileAtPath(currentPath + "\\" + m.Name)
 	if priorFile == nil {
+		if len(m.Chunks) == 0 {
+			return []string{m.Checksum}
+		}
 		for _, chunk := range m.Chunks {
 			channel := make(chan []string)
 			returnChannels = append(returnChannels, &channel)
@@ -627,6 +633,10 @@ func (m *ManifestElementFile) GetListOfRequiredChunks(currentPath string, priorM
 
 	if priorFile.Checksum == m.Checksum {
 		return []string{}
+	}
+
+	if len(m.Chunks) == 0 {
+		return []string{m.Checksum}
 	}
 
 	for _, chunk := range m.Chunks {
