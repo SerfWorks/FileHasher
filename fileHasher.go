@@ -1267,6 +1267,7 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 
 			defer newFile.Close()
 
+			_, _ = file.Seek(0, 0)
 			_, err = io.Copy(newFile, file)
 			if err != nil {
 				fmt.Println("Failed to copy file at line 847: ", err)
