@@ -418,9 +418,9 @@ func (m *ManifestElementChunkProxy) UnmarshalBSON(data []byte) error {
 		return err
 	}
 
-	m.Type = int(temp["type"].(float64))
+	m.Type = int(temp["type"].(int32))
 	m.Checksum = temp["hash"].(string)
-	m.Size = int64(temp["size"].(float64))
+	m.Size = temp["size"].(int64)
 
 	for _, chunk := range temp["chunks"].(primitive.A) {
 		castedChunk := chunk.(map[string]interface{})
@@ -720,6 +720,8 @@ func (m *ManifestElementFile) UnmarshalJSON(data []byte) error {
 	m.Name = temp["name"].(string)
 	m.Type = int(temp["type"].(float64))
 	m.Checksum = temp["hash"].(string)
+	m.Size = int64(temp["size"].(float64))
+
 	if temp["chunks"] == nil {
 		return nil
 	}
@@ -754,6 +756,7 @@ func (m *ManifestElementFile) UnmarshalBSON(data []byte) error {
 	m.Name = temp["name"].(string)
 	m.Type = int(temp["type"].(int32))
 	m.Checksum = temp["hash"].(string)
+	m.Size = temp["size"].(int64)
 
 	if temp["chunks"] == nil {
 		return nil
@@ -1006,6 +1009,8 @@ func (m *ManifestElementDirectory) UnmarshalJSON(data []byte) error {
 	m.Name = temp["name"].(string)
 	m.Type = int(temp["type"].(float64))
 	m.Checksum = temp["hash"].(string)
+	m.Size = int64(temp["size"].(float64))
+
 	if temp["elements"] == nil {
 		return nil
 	}
@@ -1039,6 +1044,8 @@ func (m *ManifestElementDirectory) UnmarshalBSON(data []byte) error {
 	m.Name = temp["name"].(string)
 	m.Type = int(temp["type"].(int32))
 	m.Checksum = temp["hash"].(string)
+	m.Size = temp["size"].(int64)
+
 	for _, directory := range temp["elements"].(primitive.A) {
 		castedDirectory := directory.(map[string]interface{})
 		var directoryData []byte
