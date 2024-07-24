@@ -13,6 +13,7 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 )
@@ -365,7 +366,20 @@ func (m *ManifestElementChunkProxy) GetListOfRequiredChunks(currentPath string, 
 		return chunkList
 	}
 	return []string{}
+}
 
+func (m *ManifestElementChunkProxy) GetListOfAllChunks() []string {
+	var chunkList []string
+
+	for _, chunk := range m.Chunks {
+		if chunk.IsProxy() {
+			chunkList = append(chunkList, chunk.(*ManifestElementChunkProxy).GetListOfAllChunks()...)
+		} else {
+			chunkList = append(chunkList, chunk.(*ManifestElementChunk).GetChecksum())
+		}
+	}
+
+	return chunkList
 }
 
 func (m *ManifestElementChunkProxy) GetType() ManifestType {
@@ -581,7 +595,31 @@ type ManifestElementFile struct {
 	Chunks   []ManifestFilePiece `json:"chunks,omitempty" bson:"chunks,omitempty"`
 }
 
-func (m *ManifestElementFile) InstallSingleFile(installPath, chunkSourcePath string) error {
+func (m *ManifestElementFile) InstallSingleFile(installPath, chunkSourcePath string, duplicateChunks []string) error {
+	if slices.Contains(duplicateChunks, m.Checksum) {
+		file, err := os.Create(installPath + "\\" + m.Name)
+		if err != nil {
+			fmt.Println("Failed to create file installing single file: ", err)
+			return err
+		}
+		defer file.Close()
+
+		var sourceFile *os.File
+		sourceFile, err = os.Open(chunkSourcePath + "\\" + m.Checksum)
+		if err != nil {
+			fmt.Println("Failed to open file installing single file: ", err)
+			return err
+		}
+		defer sourceFile.Close()
+
+		_, err = io.Copy(file, sourceFile)
+		if err != nil {
+			fmt.Println("Failed to copy file installing single file: ", err)
+			return err
+		}
+
+		return nil
+	}
 	return os.Rename(chunkSourcePath+"\\"+m.Checksum, installPath+"\\"+m.Name)
 }
 
@@ -659,6 +697,24 @@ func (m *ManifestElementFile) GetListOfRequiredChunks(currentPath string, priorM
 	}
 
 	return requiredChunks
+}
+
+func (m *ManifestElementFile) GetListOfAllChunks() []string {
+	var chunkList []string
+
+	if len(m.Chunks) == 0 {
+		return []string{m.Checksum}
+	}
+
+	for _, chunk := range m.Chunks {
+		if chunk.IsProxy() {
+			chunkList = append(chunkList, chunk.(*ManifestElementChunkProxy).GetListOfAllChunks()...)
+		} else {
+			chunkList = append(chunkList, chunk.(*ManifestElementChunk).GetChecksum())
+		}
+	}
+
+	return chunkList
 }
 
 func (m *ManifestElementFile) GetChunkAtPath(path string) *ManifestElementChunk {
@@ -884,6 +940,31 @@ func (m *ManifestElementDirectory) GetListOfRequiredChunks(currentPath string, p
 		}
 	}
 	return requiredChunks
+}
+
+func (m *ManifestElementDirectory) GetListOfAllChunks() []string {
+	var chunkList []string
+
+	for _, element := range m.Elements {
+		switch element.GetType() {
+		case MF_Directory:
+			{
+				chunkList = append(chunkList, element.(*ManifestElementDirectory).GetListOfAllChunks()...)
+				break
+			}
+		case MF_File:
+			{
+				chunkList = append(chunkList, element.(*ManifestElementFile).GetListOfAllChunks()...)
+				break
+			}
+		default:
+			{
+				fmt.Println("Unknown element type getting list of required chunks from directory")
+				break
+			}
+		}
+	}
+	return chunkList
 }
 
 func (m *ManifestElementDirectory) GetType() ManifestType {
