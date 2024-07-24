@@ -388,6 +388,7 @@ func (m *ManifestElementChunkProxy) UnmarshalJSON(data []byte) error {
 
 	m.Type = int(temp["type"].(float64))
 	m.Checksum = temp["hash"].(string)
+	m.Size = int64(temp["size"].(float64))
 
 	for _, chunk := range temp["chunks"].([]interface{}) {
 		castedChunk := chunk.(map[string]interface{})
@@ -416,6 +417,10 @@ func (m *ManifestElementChunkProxy) UnmarshalBSON(data []byte) error {
 		fmt.Println("Failed to unmarshal BSON at line 208: ", err)
 		return err
 	}
+
+	m.Type = int(temp["type"].(float64))
+	m.Checksum = temp["hash"].(string)
+	m.Size = int64(temp["size"].(float64))
 
 	for _, chunk := range temp["chunks"].(primitive.A) {
 		castedChunk := chunk.(map[string]interface{})
@@ -492,6 +497,9 @@ func (m *ManifestElementChunkProxy) BuildProxy(chunkTargetPath, currentPath stri
 		priorProxy := m.GetChunkProxyAtPath(currentPath + "\\" + m.Checksum)
 		if priorProxy != nil {
 			if priorProxy.Checksum == m.Checksum {
+				m.Size = priorProxy.Size
+				m.Checksum = priorProxy.Checksum
+				m.Type = int(MF_ChunkProxy)
 				m.Chunks = priorProxy.Chunks
 				output <- nil
 				return
@@ -563,7 +571,6 @@ func (m *ManifestElementChunkProxy) BuildProxy(chunkTargetPath, currentPath stri
 		m.Chunks = append(m.Chunks, &rightProxy)
 
 		close(output)
-
 	}()
 
 	return output
@@ -1238,12 +1245,13 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 			return
 		}
 
-		manifestOutput.element.Checksum = hex.EncodeToString(hash.Sum(nil))
+		manifestOutput.checksumHash = hash.Sum(nil)
+		manifestOutput.element.Checksum = hex.EncodeToString(manifestOutput.checksumHash)
 		if priorManifest != nil {
 			priorFile := priorManifest.GetFileAtPath(currentPath + "\\" + manifestOutput.element.Name)
 			if priorFile != nil {
 				if priorFile.Checksum == manifestOutput.element.Checksum {
-					manifestOutput.element = *priorFile
+					manifestOutput.element.Chunks = priorFile.Chunks
 					output <- manifestOutput
 					return
 				} else {
@@ -1354,7 +1362,6 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 		_ = os.Remove(chunkTargetPath + "\\" + baseData.LeftFileChecksum)
 		_ = os.Remove(chunkTargetPath + "\\" + baseData.RightFileChecksum)
 
-		manifestOutput.element.Checksum = hex.EncodeToString(hash.Sum(nil))
 		output <- manifestOutput
 	}()
 
@@ -1459,6 +1466,7 @@ func parseDirectory(filePath, chunkTargetPath, currentPath string, priorManifest
 			}
 		}
 
+		manifestOutput.manifestElement.Size = totalSize
 		manifestOutput.checksumHash = directoryHash.Sum(nil)
 		manifestOutput.manifestElement.Checksum = hex.EncodeToString(manifestOutput.checksumHash)
 
