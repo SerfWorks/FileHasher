@@ -1043,6 +1043,10 @@ func (m *ManifestElementDirectory) UnmarshalBSON(data []byte) error {
 	m.Checksum = temp["hash"].(string)
 	m.Size = temp["size"].(int64)
 
+	if temp["elements"] == nil {
+		return nil
+	}
+
 	for _, directory := range temp["elements"].(primitive.A) {
 		castedDirectory := directory.(map[string]interface{})
 		var directoryData []byte
