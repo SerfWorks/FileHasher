@@ -596,31 +596,32 @@ type ManifestElementFile struct {
 }
 
 func (m *ManifestElementFile) InstallSingleFile(installPath, chunkSourcePath string, duplicateChunks []string) error {
-	if slices.Contains(duplicateChunks, m.Checksum) {
-		file, err := os.Create(installPath + "\\" + m.Name)
-		if err != nil {
-			fmt.Println("Failed to create file installing single file: ", err)
-			return err
-		}
-		defer file.Close()
-
-		var sourceFile *os.File
-		sourceFile, err = os.Open(chunkSourcePath + "\\" + m.Checksum)
-		if err != nil {
-			fmt.Println("Failed to open file installing single file: ", err)
-			return err
-		}
-		defer sourceFile.Close()
-
-		_, err = io.Copy(file, sourceFile)
-		if err != nil {
-			fmt.Println("Failed to copy file installing single file: ", err)
-			return err
-		}
-
-		return nil
+	file, err := os.Create(installPath + "\\" + m.Name)
+	if err != nil {
+		fmt.Println("Failed to create file installing single file: ", err)
+		return err
 	}
-	return os.Rename(chunkSourcePath+"\\"+m.Checksum, installPath+"\\"+m.Name)
+	defer file.Close()
+
+	var sourceFile *os.File
+	sourceFile, err = os.Open(chunkSourcePath + "\\" + m.Checksum)
+	if err != nil {
+		fmt.Println("Failed to open file installing single file: ", err)
+		return err
+	}
+	defer sourceFile.Close()
+
+	_, err = io.Copy(file, sourceFile)
+	if err != nil {
+		fmt.Println("Failed to copy file installing single file: ", err)
+		return err
+	}
+
+	if !slices.Contains(duplicateChunks, m.Checksum) {
+		os.Remove(chunkSourcePath + "\\" + m.Checksum)
+	}
+
+	return nil
 }
 
 func (m *ManifestElementFile) GetType() ManifestType {
