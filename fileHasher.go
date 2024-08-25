@@ -406,6 +406,7 @@ func (m *ManifestElementChunkProxy) UnmarshalJSON(data []byte) error {
 		var chunkData []byte
 		chunkData, err = json.Marshal(castedChunk)
 		if err != nil {
+			fmt.Println("Failed to marshal chunk from proxy in json: ", err)
 			return err
 		}
 		if ManifestType(int(castedChunk["type"].(float64))) == MF_Chunk {
