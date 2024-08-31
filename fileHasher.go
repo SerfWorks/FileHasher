@@ -12,7 +12,6 @@ import (
 	"io/fs"
 	"math"
 	"os"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -96,27 +95,6 @@ func (m *Manifest) GetChunkAtPath(path string) *ManifestElementChunk {
 	for _, directory := range m.Directories {
 		if directory.Name == pathElements[0] {
 			return directory.GetChunkAtPath(strings.Join(pathElements[1:], "\\"))
-		}
-	}
-
-	return nil
-}
-
-func (m *Manifest) GetChunkProxyAtPath(path string) *ManifestElementChunkProxy {
-	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
-	if len(pathElements) == 0 {
-		return nil
-	}
-
-	for _, file := range m.Files {
-		if file.Name == pathElements[0] {
-			return file.GetChunkProxyAtPath(strings.Join(pathElements[1:], "\\"))
-		}
-	}
-
-	for _, directory := range m.Directories {
-		if directory.Name == pathElements[0] {
-			return directory.GetChunkProxyAtPath(strings.Join(pathElements[1:], "\\"))
 		}
 	}
 
@@ -207,393 +185,13 @@ func (m *ManifestElementChunk) GetChecksum() string {
 	return m.Checksum
 }
 
-func buildChunk(checksum string, size int64) ManifestElementChunk {
-	manifestChunk := ManifestElementChunk{}
-	manifestChunk.Type = int(MF_Chunk)
-	manifestChunk.Checksum = checksum
-	manifestChunk.Size = size
-	return manifestChunk
-}
-
-func (m *ManifestElementChunk) IsProxy() bool {
-	return false
-}
-
-type ManifestElementChunkProxy struct {
-	Type     int                 `json:"type" bson:"type"`
-	Checksum string              `json:"hash" bson:"hash"`
-	Chunks   []ManifestFilePiece `json:"chunks" bson:"chunks"`
-	Size     int64               `json:"size" bson:"size"`
-}
-
-func (m *ManifestElementChunkProxy) BuildForInstall(currentPath, chunkSourcePath string, priorManifest *Manifest) *chan error {
-	output := make(chan error)
-	go func() {
-		needToSplit := false
-		var priorPieces []ManifestFilePiece
-		for _, chunk := range m.Chunks {
-			var priorChunk ManifestFilePiece
-			if chunk.IsProxy() {
-				priorChunk = priorManifest.GetChunkProxyAtPath(currentPath + "\\" + m.Checksum + "\\" + chunk.GetChecksum())
-			} else {
-				priorChunk = priorManifest.GetChunkAtPath(currentPath + "\\" + m.Checksum + "\\" + chunk.GetChecksum())
-			}
-			priorPieces = append(priorPieces, priorChunk)
-			if priorChunk == nil {
-				needToSplit = true
-			}
-		}
-		if needToSplit {
-			file, err := os.Open(chunkSourcePath + "\\" + m.Checksum)
-			if err == nil {
-				splitChan := SplitFile(file, chunkSourcePath)
-				splitData := <-(*splitChan)
-				_ = os.Remove(chunkSourcePath + "\\" + m.Checksum)
-				if splitData.Err != nil {
-					output <- splitData.Err
-					return
-				}
-			}
-		}
-
-		file, err := os.Create(chunkSourcePath + "\\" + m.Checksum)
-		if err != nil {
-			output <- err
-			return
-		}
-
-		if m.Chunks[0].IsProxy() {
-			var proxyChannels []*chan error
-			for index, chunk := range m.Chunks {
-				proxy := chunk.(*ManifestElementChunkProxy)
-				priorProxy := priorPieces[index]
-				if reflect.ValueOf(priorProxy).IsNil() || priorProxy.GetChecksum() != proxy.Checksum {
-					proxyChannels = append(proxyChannels, proxy.BuildForInstall(currentPath+"\\"+m.Checksum, chunkSourcePath, priorManifest))
-				}
-			}
-			for _, channel := range proxyChannels {
-				err = <-(*channel)
-				if err != nil {
-					fmt.Println("Failed to build proxy at line 315: ", err)
-					output <- err
-					return
-				}
-			}
-
-			for _, proxy := range m.Chunks {
-				castedProxy := proxy.(*ManifestElementChunkProxy)
-				var proxyFile *os.File
-				proxyFile, err = os.Open(chunkSourcePath + "\\" + castedProxy.Checksum)
-				if err != nil {
-					fmt.Println("Failed to open proxy file at line 322: ", err)
-					output <- err
-					return
-				}
-				_, err = io.Copy(file, proxyFile)
-				if err != nil {
-					fmt.Println("Failed to copy proxy file at line 327: ", err)
-					output <- err
-					return
-				}
-				_ = proxyFile.Close()
-				_ = os.Remove(chunkSourcePath + "\\" + castedProxy.Checksum)
-			}
-
-			_ = file.Close()
-
-			output <- nil
-			return
-		}
-
-		for _, chunk := range m.Chunks {
-			castedChunk := chunk.(*ManifestElementChunk)
-			var chunkFile *os.File
-			chunkFile, err = os.Open(chunkSourcePath + "\\" + castedChunk.Checksum)
-			if err != nil {
-				output <- err
-				return
-			}
-			_, err = io.Copy(file, chunkFile)
-			if err != nil {
-				output <- err
-				return
-			}
-			_ = chunkFile.Close()
-			_ = os.Remove(chunkSourcePath + "\\" + castedChunk.Checksum)
-		}
-
-		output <- nil
-		_ = file.Close()
-	}()
-
-	return &output
-}
-
-func (m *ManifestElementChunkProxy) GetListOfRequiredChunks(currentPath string, priorManifest *Manifest, forceExtract bool) []string {
-	var chunkList []string
-	var returnChannels []*chan []string
-
-	if forceExtract {
-		for _, chunk := range m.Chunks {
-			channel := make(chan []string)
-			returnChannels = append(returnChannels, &channel)
-			go func() {
-				newChunks := chunk.GetListOfRequiredChunks(currentPath, priorManifest, true)
-				channel <- newChunks
-			}()
-		}
-		for _, channel := range returnChannels {
-			newChunks := <-(*channel)
-			chunkList = append(chunkList, newChunks...)
-		}
-		return chunkList
-	}
-
-	priorProxy := priorManifest.GetChunkProxyAtPath(currentPath + "\\" + m.Checksum)
-	if priorProxy == nil {
-		for _, chunk := range m.Chunks {
-			channel := make(chan []string)
-			returnChannels = append(returnChannels, &channel)
-			go func() {
-				newChunks := chunk.GetListOfRequiredChunks(currentPath, priorManifest, true)
-				channel <- newChunks
-			}()
-		}
-		for _, channel := range returnChannels {
-			newChunks := <-(*channel)
-			chunkList = append(chunkList, newChunks...)
-		}
-		return chunkList
-	}
-	return []string{}
-}
-
-func (m *ManifestElementChunkProxy) GetListOfAllChunks() []string {
-	var chunkList []string
-
-	for _, chunk := range m.Chunks {
-		if chunk.IsProxy() {
-			chunkList = append(chunkList, chunk.(*ManifestElementChunkProxy).GetListOfAllChunks()...)
-		} else {
-			chunkList = append(chunkList, chunk.(*ManifestElementChunk).GetChecksum())
-		}
-	}
-
-	return chunkList
-}
-
-func (m *ManifestElementChunkProxy) GetType() ManifestType {
-	return ManifestType(m.Type)
-}
-
-func (m *ManifestElementChunkProxy) GetChecksum() string {
-	return m.Checksum
-}
-
-func (m *ManifestElementChunkProxy) UnmarshalJSON(data []byte) error {
-	temp := make(map[string]interface{})
-	err := json.Unmarshal(data, &temp)
-	if err != nil {
-		return err
-	}
-
-	m.Type = int(temp["type"].(float64))
-	m.Checksum = temp["hash"].(string)
-	m.Size = int64(temp["size"].(float64))
-
-	for _, chunk := range temp["chunks"].([]interface{}) {
-		castedChunk := chunk.(map[string]interface{})
-		var chunkData []byte
-		chunkData, err = json.Marshal(castedChunk)
-		if err != nil {
-			fmt.Println("Failed to marshal chunk from proxy in json: ", err)
-			return err
-		}
-		if ManifestType(int(castedChunk["type"].(float64))) == MF_Chunk {
-			tempChunk := ManifestElementChunk{}
-			err = json.Unmarshal(chunkData, &tempChunk)
-			m.Chunks = append(m.Chunks, &tempChunk)
-		} else {
-			tempChunk := ManifestElementChunkProxy{}
-			err = json.Unmarshal(chunkData, &tempChunk)
-			m.Chunks = append(m.Chunks, &tempChunk)
-		}
-	}
-	return nil
-}
-
-func (m *ManifestElementChunkProxy) UnmarshalBSON(data []byte) error {
-	temp := make(map[string]interface{})
-	err := bson.Unmarshal(data, &temp)
-	if err != nil {
-		fmt.Println("Failed to unmarshal BSON at line 208: ", err)
-		return err
-	}
-
-	m.Type = int(temp["type"].(int32))
-	m.Checksum = temp["hash"].(string)
-	m.Size = temp["size"].(int64)
-
-	for _, chunk := range temp["chunks"].(primitive.A) {
-		castedChunk := chunk.(map[string]interface{})
-		var chunkData []byte
-		chunkData, err = bson.Marshal(castedChunk)
-		if err != nil {
-			fmt.Println("Failed to marshal chunk at line 216: ", err)
-			return err
-		}
-		if ManifestType(int(castedChunk["type"].(int32))) == MF_Chunk {
-			tempChunk := ManifestElementChunk{}
-			err = bson.Unmarshal(chunkData, &tempChunk)
-			m.Chunks = append(m.Chunks, &tempChunk)
-		} else {
-			tempChunk := ManifestElementChunkProxy{}
-			err = bson.Unmarshal(chunkData, &tempChunk)
-			m.Chunks = append(m.Chunks, &tempChunk)
-		}
-	}
-	return nil
-}
-
-func (m *ManifestElementChunkProxy) IsProxy() bool {
-	return true
-}
-
-func (m *ManifestElementChunkProxy) GetChunkAtPath(path string) *ManifestElementChunk {
-	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
-	if len(pathElements) == 0 {
-		return nil
-	}
-	if len(pathElements) == 1 {
-		for _, element := range m.Chunks {
-			if chunk, ok := element.(*ManifestElementChunk); ok && chunk.Checksum == pathElements[0] {
-				return chunk
-			}
-		}
-		return nil
-	}
-
-	for _, element := range m.Chunks {
-		if chunk, ok := element.(*ManifestElementChunkProxy); ok && chunk.Checksum == pathElements[0] {
-			return chunk.GetChunkAtPath(strings.Join(pathElements[1:], "\\"))
-		}
-	}
-
-	return nil
-}
-
-func (m *ManifestElementChunkProxy) GetChunkProxyAtPath(path string) *ManifestElementChunkProxy {
-	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
-	if len(pathElements) == 0 {
-		return nil
-	}
-	if len(pathElements) == 1 {
-		for _, element := range m.Chunks {
-			if chunk, ok := element.(*ManifestElementChunkProxy); ok && chunk.Checksum == pathElements[0] {
-				return chunk
-			}
-		}
-		return nil
-	}
-	for _, element := range m.Chunks {
-		if chunk, ok := element.(*ManifestElementChunkProxy); ok && chunk.Checksum == pathElements[0] {
-			return chunk.GetChunkProxyAtPath(strings.Join(pathElements[1:], "\\"))
-		}
-	}
-	return nil
-}
-
-func (m *ManifestElementChunkProxy) BuildProxy(chunkTargetPath, currentPath string, priorManifest *Manifest) chan error {
-	output := make(chan error)
-	go func() {
-		priorProxy := m.GetChunkProxyAtPath(currentPath + "\\" + m.Checksum)
-		if priorProxy != nil {
-			if priorProxy.Checksum == m.Checksum {
-				m.Size = priorProxy.Size
-				m.Checksum = priorProxy.Checksum
-				m.Type = int(MF_ChunkProxy)
-				m.Chunks = priorProxy.Chunks
-				output <- nil
-				return
-			}
-		}
-
-		m.Type = int(MF_ChunkProxy)
-		file, err := os.Open(chunkTargetPath + "\\" + m.Checksum)
-		if err != nil {
-			fmt.Println("Failed to open proxy file at line 316: ", err)
-			output <- err
-			return
-		}
-		defer func() {
-			_ = file.Close()
-			err = os.Remove(chunkTargetPath + "\\" + m.Checksum)
-			if err != nil {
-				fmt.Println("Failed to remove proxy file at line 324: " + err.Error())
-			}
-		}()
-		var stat fs.FileInfo
-		stat, err = file.Stat()
-		if err != nil {
-			fmt.Println("Failed to stat proxy file at line 329: ", err)
-			output <- err
-			return
-		}
-		m.Size = stat.Size()
-		_, _ = file.Seek(0, 0)
-		splitChan := SplitFile(file, chunkTargetPath)
-		splitData := <-(*splitChan)
-		if splitData.Err != nil {
-			output <- splitData.Err
-			return
-		}
-		if splitData.HalfSize <= int64(ChunkSize) {
-			leftChunkData := buildChunk(splitData.LeftFileChecksum, splitData.LeftFileSize)
-			m.Chunks = append(m.Chunks, &leftChunkData)
-
-			rightChunkData := buildChunk(splitData.RightFileChecksum, splitData.RightFileSize)
-			m.Chunks = append(m.Chunks, &rightChunkData)
-
-			close(output)
-			return
-		}
-
-		leftProxy := ManifestElementChunkProxy{}
-		leftProxy.Checksum = splitData.LeftFileChecksum
-		leftChan := leftProxy.BuildProxy(chunkTargetPath, currentPath+"\\"+m.Checksum, priorManifest)
-
-		rightProxy := ManifestElementChunkProxy{}
-		rightProxy.Checksum = splitData.RightFileChecksum
-		rightChan := rightProxy.BuildProxy(chunkTargetPath, currentPath+"\\"+m.Checksum, priorManifest)
-
-		err = <-leftChan
-		if err != nil {
-			fmt.Println("Failed to build left proxy at line 333: ", err)
-			output <- err
-			return
-		}
-		err = <-rightChan
-		if err != nil {
-			fmt.Println("Failed to build right proxy at line 339: ", err)
-			output <- err
-			return
-		}
-
-		m.Chunks = append(m.Chunks, &leftProxy)
-		m.Chunks = append(m.Chunks, &rightProxy)
-
-		close(output)
-	}()
-
-	return output
-}
-
 type ManifestElementFile struct {
-	Name     string                 `json:"name" bson:"name"`
-	Type     int                    `json:"type" bson:"type"`
-	Checksum string                 `json:"hash" bson:"hash"`
-	Size     int64                  `json:"size" bson:"size"`
-	Chunks   []ManifestElementChunk `json:"chunks,omitempty" bson:"chunks,omitempty"`
+	Name      string                 `json:"name" bson:"name"`
+	Type      int                    `json:"type" bson:"type"`
+	Checksum  string                 `json:"hash" bson:"hash"`
+	Size      int64                  `json:"size" bson:"size"`
+	Chunks    []ManifestElementChunk `json:"chunks,omitempty" bson:"chunks,omitempty"`
+	ChunkSize int64
 }
 
 func (m *ManifestElementFile) InstallSingleFile(installPath, chunkSourcePath string, duplicateChunks []string) error {
@@ -733,29 +331,6 @@ func (m *ManifestElementFile) GetChunkAtPath(path string) *ManifestElementChunk 
 	return nil
 }
 
-func (m *ManifestElementFile) GetChunkProxyAtPath(path string) *ManifestElementChunkProxy {
-	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
-	if len(pathElements) == 0 {
-		return nil
-	}
-	// This is no longer needed as chunk proxies are no longer used
-	/*	if len(pathElements) == 1 {
-			for _, element := range m.Chunks {
-				if chunk, ok := element.(*ManifestElementChunkProxy); ok && chunk.Checksum == pathElements[0] {
-					return chunk
-				}
-			}
-			return nil
-		}
-		for _, element := range m.Chunks {
-			if chunk, ok := element.(*ManifestElementChunkProxy); ok && chunk.Checksum == pathElements[0] {
-				return chunk.GetChunkProxyAtPath(strings.Join(pathElements[1:], "\\"))
-			}
-		}*/
-
-	return nil
-}
-
 func (m *ManifestElementFile) UnmarshalJSON(data []byte) error {
 	temp := make(map[string]interface{})
 	err := json.Unmarshal(data, &temp)
@@ -767,6 +342,7 @@ func (m *ManifestElementFile) UnmarshalJSON(data []byte) error {
 	m.Type = int(temp["type"].(float64))
 	m.Checksum = temp["hash"].(string)
 	m.Size = int64(temp["size"].(float64))
+	m.ChunkSize = int64(temp["chunkSize"].(float64))
 
 	if temp["chunks"] == nil {
 		return nil
@@ -799,6 +375,7 @@ func (m *ManifestElementFile) UnmarshalBSON(data []byte) error {
 	m.Type = int(temp["type"].(int32))
 	m.Checksum = temp["hash"].(string)
 	m.Size = temp["size"].(int64)
+	m.ChunkSize = temp["chunkSize"].(int64)
 
 	if temp["chunks"] == nil {
 		return nil
@@ -982,32 +559,6 @@ func (m *ManifestElementDirectory) GetChunkAtPath(path string) *ManifestElementC
 			return file.GetChunkAtPath(strings.Join(pathElements[1:], "\\"))
 		}
 	}
-	return nil
-}
-
-func (m *ManifestElementDirectory) GetChunkProxyAtPath(path string) *ManifestElementChunkProxy {
-	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
-	if len(pathElements) < 2 {
-		return nil
-	}
-
-	if len(pathElements) == 2 {
-		for _, element := range m.Elements {
-			if file, ok := element.(*ManifestElementFile); ok && file.Name == pathElements[0] {
-				return file.GetChunkProxyAtPath(strings.Join(pathElements[2:], "\\"))
-			}
-		}
-	}
-
-	for _, element := range m.Elements {
-		if dir, ok := element.(*ManifestElementDirectory); ok && dir.Name == pathElements[0] {
-			return dir.GetChunkProxyAtPath(strings.Join(pathElements[1:], "\\"))
-		}
-		if file, ok := element.(*ManifestElementFile); ok && file.Name == pathElements[0] {
-			return file.GetChunkProxyAtPath(strings.Join(pathElements[1:], "\\"))
-		}
-	}
-
 	return nil
 }
 
@@ -1370,6 +921,8 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 
 		_, _ = file.Seek(0, 0)
 		numChunks := int(math.Ceil(float64(fileInfo.Size()) / float64(ChunkSize)))
+		manifestOutput.element.ChunkSize = int64(ChunkSize)
+
 		for i := 0; i < numChunks; i++ {
 			var chunkBytes []byte
 			if i == numChunks-1 {
@@ -1389,6 +942,7 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 			}
 
 			manifestOutput.element.Chunks = append(manifestOutput.element.Chunks, chunkData)
+
 			if priorManifest != nil {
 				priorChunk := priorManifest.GetChunkAtPath(currentPath + "\\" + manifestOutput.element.Name + "\\" + chunkChecksum)
 				if priorChunk != nil && priorChunk.Checksum == chunkChecksum {
