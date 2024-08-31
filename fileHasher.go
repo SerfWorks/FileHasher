@@ -28,7 +28,7 @@ const (
 	MF_ChunkProxy
 )
 
-var ChunkSize = 1024 * 1024 * 100
+var ChunkSize = 1024 * 1024 * 50
 
 type Manifest struct {
 	Id              string                     `json:"id" bson:"id" required:"true" unique:"1"`
@@ -589,11 +589,11 @@ func (m *ManifestElementChunkProxy) BuildProxy(chunkTargetPath, currentPath stri
 }
 
 type ManifestElementFile struct {
-	Name     string              `json:"name" bson:"name"`
-	Type     int                 `json:"type" bson:"type"`
-	Checksum string              `json:"hash" bson:"hash"`
-	Size     int64               `json:"size" bson:"size"`
-	Chunks   []ManifestFilePiece `json:"chunks,omitempty" bson:"chunks,omitempty"`
+	Name     string                 `json:"name" bson:"name"`
+	Type     int                    `json:"type" bson:"type"`
+	Checksum string                 `json:"hash" bson:"hash"`
+	Size     int64                  `json:"size" bson:"size"`
+	Chunks   []ManifestElementChunk `json:"chunks,omitempty" bson:"chunks,omitempty"`
 }
 
 func (m *ManifestElementFile) InstallSingleFile(installPath, chunkSourcePath string, duplicateChunks []string) error {
@@ -709,11 +709,7 @@ func (m *ManifestElementFile) GetListOfAllChunks() []string {
 	}
 
 	for _, chunk := range m.Chunks {
-		if chunk.IsProxy() {
-			chunkList = append(chunkList, chunk.(*ManifestElementChunkProxy).GetListOfAllChunks()...)
-		} else {
-			chunkList = append(chunkList, chunk.(*ManifestElementChunk).GetChecksum())
-		}
+		chunkList = append(chunkList, chunk.GetChecksum())
 	}
 
 	return chunkList
@@ -727,17 +723,11 @@ func (m *ManifestElementFile) GetChunkAtPath(path string) *ManifestElementChunk 
 
 	if len(pathElements) == 1 {
 		for _, element := range m.Chunks {
-			if chunk, ok := element.(*ManifestElementChunk); ok && chunk.Checksum == pathElements[0] {
-				return chunk
+			if element.Checksum == pathElements[0] {
+				return &element
 			}
 		}
 		return nil
-	}
-
-	for _, element := range m.Chunks {
-		if chunk, ok := element.(*ManifestElementChunkProxy); ok && chunk.Checksum == pathElements[0] {
-			return chunk.GetChunkAtPath(strings.Join(pathElements[1:], "\\"))
-		}
 	}
 
 	return nil
@@ -748,19 +738,20 @@ func (m *ManifestElementFile) GetChunkProxyAtPath(path string) *ManifestElementC
 	if len(pathElements) == 0 {
 		return nil
 	}
-	if len(pathElements) == 1 {
+	// This is no longer needed as chunk proxies are no longer used
+	/*	if len(pathElements) == 1 {
+			for _, element := range m.Chunks {
+				if chunk, ok := element.(*ManifestElementChunkProxy); ok && chunk.Checksum == pathElements[0] {
+					return chunk
+				}
+			}
+			return nil
+		}
 		for _, element := range m.Chunks {
 			if chunk, ok := element.(*ManifestElementChunkProxy); ok && chunk.Checksum == pathElements[0] {
-				return chunk
+				return chunk.GetChunkProxyAtPath(strings.Join(pathElements[1:], "\\"))
 			}
-		}
-		return nil
-	}
-	for _, element := range m.Chunks {
-		if chunk, ok := element.(*ManifestElementChunkProxy); ok && chunk.Checksum == pathElements[0] {
-			return chunk.GetChunkProxyAtPath(strings.Join(pathElements[1:], "\\"))
-		}
-	}
+		}*/
 
 	return nil
 }
@@ -791,11 +782,7 @@ func (m *ManifestElementFile) UnmarshalJSON(data []byte) error {
 		if ManifestType(int(castedChunk["type"].(float64))) == MF_Chunk {
 			tempChunk := ManifestElementChunk{}
 			err = json.Unmarshal(chunkData, &tempChunk)
-			m.Chunks = append(m.Chunks, &tempChunk)
-		} else {
-			tempChunk := ManifestElementChunkProxy{}
-			err = json.Unmarshal(chunkData, &tempChunk)
-			m.Chunks = append(m.Chunks, &tempChunk)
+			m.Chunks = append(m.Chunks, tempChunk)
 		}
 	}
 	return nil
@@ -827,11 +814,7 @@ func (m *ManifestElementFile) UnmarshalBSON(data []byte) error {
 		if ManifestType(int(castedChunk["type"].(int32))) == MF_Chunk {
 			tempChunk := ManifestElementChunk{}
 			err = bson.Unmarshal(chunkData, &tempChunk)
-			m.Chunks = append(m.Chunks, &tempChunk)
-		} else {
-			tempChunk := ManifestElementChunkProxy{}
-			err = bson.Unmarshal(chunkData, &tempChunk)
-			m.Chunks = append(m.Chunks, &tempChunk)
+			m.Chunks = append(m.Chunks, tempChunk)
 		}
 	}
 	return nil
@@ -1386,79 +1369,52 @@ func parseFile(filePath, chunkTargetPath, currentPath string, priorManifest *Man
 		}
 
 		_, _ = file.Seek(0, 0)
-		baseChannel := SplitFile(file, chunkTargetPath)
-		baseData := <-(*baseChannel)
-		if baseData.Err != nil {
-			fmt.Println("Error Parsing File : " + filePath)
-			fmt.Println("Failed to split file: ", baseData.Err)
-			manifestOutput.err = baseData.Err
-			output <- manifestOutput
-			return
-		}
+		numChunks := int(math.Ceil(float64(fileInfo.Size()) / float64(ChunkSize)))
+		for i := 0; i < numChunks; i++ {
+			var chunkBytes []byte
+			if i == numChunks-1 {
+				chunkBytes = make([]byte, fileInfo.Size()%int64(ChunkSize))
+			} else {
+				chunkBytes = make([]byte, ChunkSize)
+			}
+			_, _ = file.Read(chunkBytes)
 
-		if baseData.HalfSize <= int64(ChunkSize) {
-			leftChunkData := ManifestElementChunk{}
-			leftChunkData.Type = int(MF_Chunk)
-			leftChunkData.Checksum = baseData.LeftFileChecksum
-			leftChunkData.Size = baseData.LeftFileSize
-			manifestOutput.element.Chunks = append(manifestOutput.element.Chunks, &leftChunkData)
+			chunkHash := md5.New()
+			_, _ = chunkHash.Write(chunkBytes)
+			chunkChecksum := hex.EncodeToString(chunkHash.Sum(nil))
+			chunkData := ManifestElementChunk{
+				Type:     int(MF_Chunk),
+				Checksum: chunkChecksum,
+				Size:     int64(len(chunkBytes)),
+			}
 
-			rightChunkData := ManifestElementChunk{}
-			rightChunkData.Type = int(MF_Chunk)
-			rightChunkData.Checksum = baseData.RightFileChecksum
-			rightChunkData.Size = baseData.RightFileSize
-			manifestOutput.element.Chunks = append(manifestOutput.element.Chunks, &rightChunkData)
-
+			manifestOutput.element.Chunks = append(manifestOutput.element.Chunks, chunkData)
 			if priorManifest != nil {
-				priorLeftChunkData := priorManifest.GetChunkAtPath(currentPath + "\\" + manifestOutput.element.Name + "\\" + baseData.LeftFileChecksum)
-				if priorLeftChunkData != nil {
-					if priorLeftChunkData.Checksum == baseData.LeftFileChecksum {
-						_ = os.Remove(chunkTargetPath + "\\" + baseData.LeftFileChecksum)
-					}
-				}
-				priorRightChunkData := priorManifest.GetChunkAtPath(currentPath + "\\" + manifestOutput.element.Name + "\\" + baseData.RightFileChecksum)
-				if priorRightChunkData != nil {
-					if priorRightChunkData.Checksum == baseData.RightFileChecksum {
-						_ = os.Remove(chunkTargetPath + "\\" + baseData.RightFileChecksum)
-					}
+				priorChunk := priorManifest.GetChunkAtPath(currentPath + "\\" + manifestOutput.element.Name + "\\" + chunkChecksum)
+				if priorChunk != nil && priorChunk.Checksum == chunkChecksum {
+					continue
 				}
 			}
-			output <- manifestOutput
-			return
+
+			var chunkFile *os.File
+			chunkFile, err = os.Open(chunkTargetPath + "\\" + chunkChecksum)
+			if err == nil {
+				chunkFile.Close()
+				continue
+			}
+
+			chunkFile, err = os.Create(chunkTargetPath + "\\" + chunkChecksum)
+			if errors.Is(err, os.ErrExist) {
+				fmt.Println("Error Parsing File : " + filePath)
+				fmt.Println("Failed to create chunk file: ", err)
+				manifestOutput.err = err
+				output <- manifestOutput
+				return
+			}
+
+			_, _ = chunkFile.Write(chunkBytes)
+			chunkFile.Close()
 		}
-
-		leftProxy := ManifestElementChunkProxy{}
-		leftProxy.Type = int(MF_Chunk)
-		leftProxy.Checksum = baseData.LeftFileChecksum
-		leftChan := leftProxy.BuildProxy(chunkTargetPath, currentPath+"\\"+manifestOutput.element.Name+"\\", priorManifest)
-		rightProxy := ManifestElementChunkProxy{}
-		rightProxy.Type = int(MF_Chunk)
-		rightProxy.Checksum = baseData.RightFileChecksum
-		rightChan := rightProxy.BuildProxy(chunkTargetPath, currentPath+"\\"+manifestOutput.element.Name+"\\", priorManifest)
-
-		err = <-leftChan
-		if err != nil {
-			fmt.Println("Error Parsing File : " + filePath)
-			fmt.Println("Failed to build left proxy: ", err)
-			manifestOutput.err = err
-			output <- manifestOutput
-			return
-		}
-
-		err = <-rightChan
-		if err != nil {
-			fmt.Println("Error Parsing File : " + filePath)
-			fmt.Println("Failed to build right proxy: ", err)
-			manifestOutput.err = err
-			output <- manifestOutput
-			return
-		}
-
-		manifestOutput.element.Chunks = append(manifestOutput.element.Chunks, &leftProxy)
-		manifestOutput.element.Chunks = append(manifestOutput.element.Chunks, &rightProxy)
-
-		_ = os.Remove(chunkTargetPath + "\\" + baseData.LeftFileChecksum)
-		_ = os.Remove(chunkTargetPath + "\\" + baseData.RightFileChecksum)
 
 		fmt.Println("Parsed file : " + filePath)
 
