@@ -134,6 +134,7 @@ func (m *Manifest) GetDirectoryAtPath(path string) *ManifestElementDirectory {
 
 	if len(pathElements) == 1 {
 		for _, dir := range m.Directories {
+			fmt.Println("Checking dir: " + dir.Name)
 			if dir.Name == pathElements[0] {
 				return &dir
 			}
@@ -411,6 +412,7 @@ func (m *ManifestElementDirectory) GetNumFiles() int {
 
 func (m *ManifestElementDirectory) GetListOfRequiredChunks(currentPath string, priorManifest *Manifest, forceExtract bool) []string {
 	var requiredChunks []string
+	currentPath += "\\" + m.Name
 	if forceExtract {
 		for _, element := range m.Elements {
 			switch element.GetType() {
