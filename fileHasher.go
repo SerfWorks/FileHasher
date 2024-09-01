@@ -128,6 +128,7 @@ func (m *Manifest) GetFileAtPath(path string) *ManifestElementFile {
 func (m *Manifest) GetDirectoryAtPath(path string) *ManifestElementDirectory {
 	pathElements := CleanEmptyElements(strings.Split(path, "\\"))
 	if len(pathElements) == 0 {
+		fmt.Println("Path is empty")
 		return nil
 	}
 
@@ -137,6 +138,7 @@ func (m *Manifest) GetDirectoryAtPath(path string) *ManifestElementDirectory {
 				return &dir
 			}
 		}
+		fmt.Println("Failed to find directory at path: " + path)
 		return nil
 	}
 
