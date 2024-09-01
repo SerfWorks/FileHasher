@@ -58,7 +58,7 @@ func (m *Manifest) GetListOfRequiredChunks(priorManifest *Manifest) []string {
 		channel := make(chan []string)
 		returnChannels = append(returnChannels, &channel)
 		go func() {
-			newChunks := file.GetListOfRequiredChunks("", priorManifest, true)
+			newChunks := file.GetListOfRequiredChunks("", priorManifest, false)
 			channel <- newChunks
 		}()
 	}
@@ -67,7 +67,7 @@ func (m *Manifest) GetListOfRequiredChunks(priorManifest *Manifest) []string {
 		channel := make(chan []string)
 		returnChannels = append(returnChannels, &channel)
 		go func() {
-			newChunks := directory.GetListOfRequiredChunks("", priorManifest, true)
+			newChunks := directory.GetListOfRequiredChunks("", priorManifest, false)
 			channel <- newChunks
 		}()
 	}
