@@ -233,16 +233,13 @@ func (m *ManifestElementFile) GetChecksum() string {
 
 func (m *ManifestElementFile) GetListOfRequiredChunks(currentPath string, priorManifest *Manifest, forceExtract bool) []string {
 	var requiredChunks []string
-	var returnChannels []*chan []string
 
 	if forceExtract {
 		if len(m.Chunks) == 0 {
 			return []string{m.Checksum}
 		}
 		for _, chunk := range m.Chunks {
-			if priorManifest.GetChunkAtPath(currentPath+"\\"+chunk.Checksum) == nil {
-				requiredChunks = append(requiredChunks, chunk.Checksum)
-			}
+			requiredChunks = append(requiredChunks, chunk.Checksum)
 		}
 		return requiredChunks
 	}
@@ -253,9 +250,7 @@ func (m *ManifestElementFile) GetListOfRequiredChunks(currentPath string, priorM
 			return []string{m.Checksum}
 		}
 		for _, chunk := range m.Chunks {
-			if priorManifest.GetChunkAtPath(currentPath+"\\"+chunk.Checksum) == nil {
-				requiredChunks = append(requiredChunks, chunk.Checksum)
-			}
+			requiredChunks = append(requiredChunks, chunk.Checksum)
 		}
 		return requiredChunks
 	}
@@ -269,17 +264,16 @@ func (m *ManifestElementFile) GetListOfRequiredChunks(currentPath string, priorM
 	}
 
 	for _, chunk := range m.Chunks {
-		channel := make(chan []string)
-		returnChannels = append(returnChannels, &channel)
-		go func() {
-			newChunks := chunk.GetListOfRequiredChunks(currentPath, priorManifest, false)
-			channel <- newChunks
-		}()
-	}
-
-	for _, channel := range returnChannels {
-		newChunks := <-(*channel)
-		requiredChunks = append(requiredChunks, newChunks...)
+		foundChunk := false
+		for _, existingChunk := range priorFile.Chunks {
+			if existingChunk.Checksum == chunk.Checksum {
+				foundChunk = true
+				break
+			}
+		}
+		if !foundChunk {
+			requiredChunks = append(requiredChunks, chunk.Checksum)
+		}
 	}
 
 	return requiredChunks
