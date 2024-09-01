@@ -240,16 +240,9 @@ func (m *ManifestElementFile) GetListOfRequiredChunks(currentPath string, priorM
 			return []string{m.Checksum}
 		}
 		for _, chunk := range m.Chunks {
-			channel := make(chan []string)
-			returnChannels = append(returnChannels, &channel)
-			go func() {
-				newChunks := chunk.GetListOfRequiredChunks(currentPath, priorManifest, true)
-				channel <- newChunks
-			}()
-		}
-		for _, channel := range returnChannels {
-			newChunks := <-(*channel)
-			requiredChunks = append(requiredChunks, newChunks...)
+			if priorManifest.GetChunkAtPath(currentPath+"\\"+chunk.Checksum) == nil {
+				requiredChunks = append(requiredChunks, chunk.Checksum)
+			}
 		}
 		return requiredChunks
 	}
@@ -260,16 +253,9 @@ func (m *ManifestElementFile) GetListOfRequiredChunks(currentPath string, priorM
 			return []string{m.Checksum}
 		}
 		for _, chunk := range m.Chunks {
-			channel := make(chan []string)
-			returnChannels = append(returnChannels, &channel)
-			go func() {
-				newChunks := chunk.GetListOfRequiredChunks(currentPath, priorManifest, true)
-				channel <- newChunks
-			}()
-		}
-		for _, channel := range returnChannels {
-			newChunks := <-(*channel)
-			requiredChunks = append(requiredChunks, newChunks...)
+			if priorManifest.GetChunkAtPath(currentPath+"\\"+chunk.Checksum) == nil {
+				requiredChunks = append(requiredChunks, chunk.Checksum)
+			}
 		}
 		return requiredChunks
 	}
