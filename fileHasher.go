@@ -342,7 +342,9 @@ func (m *ManifestElementFile) UnmarshalJSON(data []byte) error {
 	m.Type = int(temp["type"].(float64))
 	m.Checksum = temp["hash"].(string)
 	m.Size = int64(temp["size"].(float64))
-	m.ChunkSize = int64(temp["chunkSize"].(float64))
+	if chunkSize, ok := temp["chunkSize"]; ok {
+		m.ChunkSize = int64(chunkSize.(float64))
+	}
 
 	if temp["chunks"] == nil {
 		return nil
@@ -375,7 +377,9 @@ func (m *ManifestElementFile) UnmarshalBSON(data []byte) error {
 	m.Type = int(temp["type"].(int32))
 	m.Checksum = temp["hash"].(string)
 	m.Size = temp["size"].(int64)
-	m.ChunkSize = temp["chunkSize"].(int64)
+	if chunkSize, ok := temp["chunkSize"]; ok {
+		m.ChunkSize = chunkSize.(int64)
+	}
 
 	if temp["chunks"] == nil {
 		return nil
