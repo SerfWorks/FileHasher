@@ -246,6 +246,7 @@ func (m *ManifestElementFile) GetListOfRequiredChunks(currentPath string, priorM
 
 	priorFile := priorManifest.GetFileAtPath(currentPath + "\\" + m.Name)
 	if priorFile == nil {
+		fmt.Println("Prior file is nil: forcing extraction.")
 		if len(m.Chunks) == 0 {
 			return []string{m.Checksum}
 		}
@@ -433,6 +434,7 @@ func (m *ManifestElementDirectory) GetListOfRequiredChunks(currentPath string, p
 
 	priorDir := priorManifest.GetDirectoryAtPath(currentPath + "\\" + m.Name)
 	if priorDir == nil {
+		fmt.Println("Prior dir is nil: forcing extraction.")
 		for _, element := range m.Elements {
 			switch element.GetType() {
 			case MF_Directory:
@@ -463,12 +465,12 @@ func (m *ManifestElementDirectory) GetListOfRequiredChunks(currentPath string, p
 		switch element.GetType() {
 		case MF_Directory:
 			{
-				requiredChunks = append(requiredChunks, element.(*ManifestElementDirectory).GetListOfRequiredChunks(currentPath, priorManifest, false)...)
+				requiredChunks = append(requiredChunks, element.(*ManifestElementDirectory).GetListOfRequiredChunks(currentPath, priorManifest, forceExtract)...)
 				break
 			}
 		case MF_File:
 			{
-				requiredChunks = append(requiredChunks, element.(*ManifestElementFile).GetListOfRequiredChunks(currentPath, priorManifest, false)...)
+				requiredChunks = append(requiredChunks, element.(*ManifestElementFile).GetListOfRequiredChunks(currentPath, priorManifest, forceExtract)...)
 				break
 			}
 		default:
