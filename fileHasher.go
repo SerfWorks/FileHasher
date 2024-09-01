@@ -264,14 +264,7 @@ func (m *ManifestElementFile) GetListOfRequiredChunks(currentPath string, priorM
 	}
 
 	for _, chunk := range m.Chunks {
-		foundChunk := false
-		for _, existingChunk := range priorFile.Chunks {
-			if existingChunk.Checksum == chunk.Checksum {
-				foundChunk = true
-				break
-			}
-		}
-		if !foundChunk {
+		if priorManifest.GetChunkAtPath(currentPath+"\\"+chunk.Checksum) == nil {
 			requiredChunks = append(requiredChunks, chunk.Checksum)
 		}
 	}
