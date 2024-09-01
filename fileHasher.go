@@ -412,18 +412,18 @@ func (m *ManifestElementDirectory) GetNumFiles() int {
 
 func (m *ManifestElementDirectory) GetListOfRequiredChunks(currentPath string, priorManifest *Manifest, forceExtract bool) []string {
 	var requiredChunks []string
-	currentPath += "\\" + m.Name
+	pathForChildren := currentPath + "\\" + m.Name
 	if forceExtract {
 		for _, element := range m.Elements {
 			switch element.GetType() {
 			case MF_Directory:
 				{
-					requiredChunks = append(requiredChunks, element.(*ManifestElementDirectory).GetListOfRequiredChunks(currentPath, priorManifest, true)...)
+					requiredChunks = append(requiredChunks, element.(*ManifestElementDirectory).GetListOfRequiredChunks(pathForChildren, priorManifest, true)...)
 					break
 				}
 			case MF_File:
 				{
-					requiredChunks = append(requiredChunks, element.(*ManifestElementFile).GetListOfRequiredChunks(currentPath, priorManifest, true)...)
+					requiredChunks = append(requiredChunks, element.(*ManifestElementFile).GetListOfRequiredChunks(pathForChildren, priorManifest, true)...)
 					break
 				}
 			default:
@@ -443,12 +443,12 @@ func (m *ManifestElementDirectory) GetListOfRequiredChunks(currentPath string, p
 			switch element.GetType() {
 			case MF_Directory:
 				{
-					requiredChunks = append(requiredChunks, element.(*ManifestElementDirectory).GetListOfRequiredChunks(currentPath, priorManifest, true)...)
+					requiredChunks = append(requiredChunks, element.(*ManifestElementDirectory).GetListOfRequiredChunks(pathForChildren, priorManifest, true)...)
 					break
 				}
 			case MF_File:
 				{
-					requiredChunks = append(requiredChunks, element.(*ManifestElementFile).GetListOfRequiredChunks(currentPath, priorManifest, true)...)
+					requiredChunks = append(requiredChunks, element.(*ManifestElementFile).GetListOfRequiredChunks(pathForChildren, priorManifest, true)...)
 					break
 				}
 			default:
@@ -469,12 +469,12 @@ func (m *ManifestElementDirectory) GetListOfRequiredChunks(currentPath string, p
 		switch element.GetType() {
 		case MF_Directory:
 			{
-				requiredChunks = append(requiredChunks, element.(*ManifestElementDirectory).GetListOfRequiredChunks(currentPath, priorManifest, forceExtract)...)
+				requiredChunks = append(requiredChunks, element.(*ManifestElementDirectory).GetListOfRequiredChunks(pathForChildren, priorManifest, forceExtract)...)
 				break
 			}
 		case MF_File:
 			{
-				requiredChunks = append(requiredChunks, element.(*ManifestElementFile).GetListOfRequiredChunks(currentPath, priorManifest, forceExtract)...)
+				requiredChunks = append(requiredChunks, element.(*ManifestElementFile).GetListOfRequiredChunks(pathForChildren, priorManifest, forceExtract)...)
 				break
 			}
 		default:
