@@ -191,7 +191,7 @@ type ManifestElementFile struct {
 	Checksum  string                 `json:"hash" bson:"hash"`
 	Size      int64                  `json:"size" bson:"size"`
 	Chunks    []ManifestElementChunk `json:"chunks,omitempty" bson:"chunks,omitempty"`
-	ChunkSize int64
+	ChunkSize int64                  `json:"chunkSize" bson:"chunkSize"`
 }
 
 func (m *ManifestElementFile) InstallSingleFile(installPath, chunkSourcePath string, duplicateChunks []string) error {
