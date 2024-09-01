@@ -386,6 +386,60 @@ type ManifestElementDirectory struct {
 	Size     int64          `json:"size" bson:"size"`
 }
 
+func (m *ManifestElementDirectory) GetNumDiffs(currentPath string, priorManifest *Manifest) int {
+	var numDiffs int
+	pathForChildren := currentPath + "\\" + m.Name
+	var priorDir *ManifestElementDirectory
+	if priorManifest != nil {
+		priorDir = priorManifest.GetDirectoryAtPath(pathForChildren)
+	}
+	if priorDir == nil {
+		for _, element := range m.Elements {
+			switch element.GetType() {
+			case MF_Directory:
+				{
+					numDiffs += element.(*ManifestElementDirectory).GetNumDiffs(pathForChildren, priorManifest)
+					break
+				}
+			case MF_File:
+				{
+					numDiffs++
+					break
+				}
+			default:
+				{
+					fmt.Println("Unknown element type getting num diffs")
+					break
+				}
+			}
+		}
+		return numDiffs
+	}
+	for _, element := range m.Elements {
+		switch element.GetType() {
+		case MF_Directory:
+			{
+				numDiffs += element.(*ManifestElementDirectory).GetNumDiffs(pathForChildren, priorManifest)
+				break
+			}
+		case MF_File:
+			{
+				priorFile := priorDir.GetFileAtPath(pathForChildren + "\\" + element.(*ManifestElementFile).Name)
+				if priorFile == nil || priorFile.Checksum != element.(*ManifestElementFile).Checksum {
+					numDiffs++
+				}
+				break
+			}
+		default:
+			{
+				fmt.Println("Unknown element type getting num diffs")
+			}
+		}
+	}
+
+	return numDiffs
+}
+
 func (m *ManifestElementDirectory) GetNumFiles() int {
 	var numFiles int
 	for _, element := range m.Elements {
